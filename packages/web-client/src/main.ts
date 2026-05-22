@@ -4,7 +4,7 @@ import { NEED_KEYS } from '@game/protocol';
 import { Renderer } from './renderer';
 import { attachCameraControls } from './input';
 import { VoiceManager } from './voice';
-import { createTransport } from './net/transport';
+import { createTransport, DEFAULT_SERVER_URL, type TransportChoice } from './net/transport';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const NEED_LABEL: Record<NeedKey, string> = {
@@ -25,7 +25,8 @@ async function main() {
   attachCameraControls(renderer.app.canvas, renderer.camera);
 
   const voice = new VoiceManager();
-  const transport = createTransport();
+  const choice = await chooseTransport();
+  const transport = createTransport(choice);
   $('mode').textContent = transport.label;
 
   let selectedId: number | null = null;
@@ -111,6 +112,48 @@ async function main() {
   });
 
   transport.start();
+}
+
+const STORAGE_KEY = 'transportChoice';
+
+/** Affiche la modale de démarrage (local ↔ serveur) ; mémorise le choix si demandé. */
+function chooseTransport(): Promise<TransportChoice | undefined> {
+  // Un override `?server=` ou un choix mémorisé court-circuitent la modale.
+  if (new URLSearchParams(location.search).has('server')) return Promise.resolve(undefined);
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      return Promise.resolve(JSON.parse(saved) as TransportChoice);
+    } catch {
+      /* choix corrompu : on réaffiche la modale */
+    }
+  }
+
+  return new Promise((resolve) => {
+    const startup = $('startup');
+    const srvRow = $('srvRow');
+    const srvUrl = $<HTMLInputElement>('srvUrl');
+    const remember = $<HTMLInputElement>('remember');
+    let mode: 'local' | 'server' = DEFAULT_SERVER_URL ? 'server' : 'local';
+    srvUrl.value = DEFAULT_SERVER_URL;
+
+    const paint = () => {
+      $('modeLocal').classList.toggle('active', mode === 'local');
+      $('modeServer').classList.toggle('active', mode === 'server');
+      srvRow.style.display = mode === 'server' ? 'block' : 'none';
+    };
+    $('modeLocal').addEventListener('click', () => { mode = 'local'; paint(); });
+    $('modeServer').addEventListener('click', () => { mode = 'server'; paint(); });
+    paint();
+
+    $('playBtn').addEventListener('click', () => {
+      const choice: TransportChoice =
+        mode === 'server' ? { mode: 'server', url: srvUrl.value.trim() } : { mode: 'local' };
+      if (remember.checked) localStorage.setItem(STORAGE_KEY, JSON.stringify(choice));
+      startup.style.display = 'none';
+      resolve(choice);
+    });
+  });
 }
 
 function escapeHtml(s: string): string {

@@ -71,9 +71,18 @@ export class WebSocketTransport extends BaseTransport {
   }
 }
 
-/** Choisit le transport selon `?server=ws://...` dans l'URL. */
-export function createTransport(): Transport {
-  const params = new URLSearchParams(location.search);
-  const server = params.get('server');
-  return server ? new WebSocketTransport(server) : new WorkerTransport();
+export type TransportChoice = { mode: 'local' } | { mode: 'server'; url: string };
+
+/** URL serveur par défaut, injectée au build (déploiement distant). */
+export const DEFAULT_SERVER_URL: string = import.meta.env.VITE_SERVER_URL ?? '';
+
+/**
+ * Choisit le transport. `?server=ws://...` dans l'URL prime (tests) ; sinon on suit le
+ * choix explicite de l'utilisateur ; à défaut, simulation locale.
+ */
+export function createTransport(choice?: TransportChoice): Transport {
+  const override = new URLSearchParams(location.search).get('server');
+  if (override) return new WebSocketTransport(override);
+  if (choice?.mode === 'server' && choice.url) return new WebSocketTransport(choice.url);
+  return new WorkerTransport();
 }

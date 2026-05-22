@@ -29,6 +29,8 @@ jobs:
         run: pnpm typecheck && pnpm test
       - name: Build web client
         run: pnpm build:web
+        env:
+          VITE_SERVER_URL: wss://esp32-2dgame-server.onrender.com
       - uses: actions/upload-pages-artifact@v3
         with:
           path: packages/web-client/dist

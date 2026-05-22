@@ -68,4 +68,7 @@
   → `packages/protocol/src/wire.ts` (encode/decode), branché serveur + `WebSocketTransport`.
   Worker inchangé. Round-trips testés (`protocol/test/wire.test.ts`). Interop C++/ESP32 réelle
   reste à valider en phase 8 (pas de carte ici).
-- [ ] Déploiement d'un serveur hébergé (pour LLM/voix accessibles depuis le web sans poste local)
+- [x] Déploiement d'un serveur hébergé (Render.com, blueprint `render.yaml`) → `wss://` public,
+  health check `/health`, LLM cloud via secrets Render. Le client web (Pages) propose au
+  démarrage le choix **local (worker) ↔ serveur distant** (URL injectée via `VITE_SERVER_URL`).
+  Reste : génération audio/voix côté serveur (TTS cloud, le free tier ne tient pas Piper).
