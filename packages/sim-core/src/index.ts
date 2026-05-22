@@ -8,3 +8,4 @@ export { Orchestrator } from './ai/orchestrator';
 export { decideAction } from './ai/utility';
 export { stepNeeds, mostUrgent } from './ai/needs';
 export type { Agent, Personality } from './entities';
+export * from './crafting';

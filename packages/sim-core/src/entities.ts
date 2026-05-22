@@ -33,6 +33,12 @@ export interface Agent {
   thinking: boolean;
   /** Tick jusqu'auquel l'agent « parle » (réplique affichée). */
   sayingUntilTick: number;
+  /** Ressources brutes + objets craftés portés. */
+  inventory: Map<string, number>;
+  /** Maisons construites. */
+  houses: number;
+  /** Prochain tick autorisé pour une action de récolte/craft (cadence). */
+  nextGatherTick: number;
 }
 
 export function makeNeeds(partial?: Partial<Needs>): Needs {

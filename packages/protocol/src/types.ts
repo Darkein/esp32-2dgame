@@ -38,6 +38,11 @@ export interface Needs {
 export type NeedKey = keyof Needs;
 export const NEED_KEYS: readonly NeedKey[] = ['energy', 'hunger', 'social', 'hygiene', 'fun'];
 
+export interface ItemStack {
+  kind: string;
+  count: number;
+}
+
 export interface AgentState {
   id: number;
   name: string;
@@ -47,6 +52,10 @@ export interface AgentState {
   voiceProfile: number;
   goal: string;
   saying: string;
+  /** Ressources brutes + objets craftés portés par l'agent. */
+  inventory: ItemStack[];
+  /** Nombre de maisons construites (aspiration logement). */
+  houses: number;
 }
 
 export interface ItemState {

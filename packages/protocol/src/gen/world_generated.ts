@@ -8,6 +8,7 @@ export { ChatToAgent } from './game/wire/chat-to-agent';
 export { ClientPayload, unionToClientPayload, unionListToClientPayload } from './game/wire/client-payload';
 export { DialogueEvent } from './game/wire/dialogue-event';
 export { Hello } from './game/wire/hello';
+export { ItemStack } from './game/wire/item-stack';
 export { ItemState } from './game/wire/item-state';
 export { Needs } from './game/wire/needs';
 export { ServerMessage } from './game/wire/server-message';

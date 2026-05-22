@@ -50,9 +50,12 @@
 - [ ] Lecture **multi-canaux** réellement simultanée côté client
 - [ ] STT **whisper.cpp** (entrée vocale du joueur)
 
-## ⬜ Phase 7 — Profondeur gameplay
-- [ ] Arbres de crafting, inventaire, ressources récoltables
-- [ ] Construction de maisons / logement, métiers, économie & échanges entre IA
+## ✅ Phase 7 — Profondeur gameplay  *(socle)*
+- [x] Inventaire par agent + ressources récoltables (bois/forêt, pierre, blé/champ)
+- [x] Récolte ciblée : l'IA va chercher la ressource qui lui manque (`utility.ts`)
+- [x] Recettes (`crafting.ts`) : planche, pain, outil ; cuisson du pain mangée pour la faim
+- [x] Construction de maisons (coût matériaux) → `AgentState.houses`, affiché au HUD
+- [ ] Métiers spécialisés, échanges/économie entre IA, placement libre de bâtiments
 
 ## ⬜ Phase 8 — Client ESP32-S3 Touch
 - [ ] Projet PlatformIO (LovyanGFX/LVGL), rendu tuiles + UI tactile

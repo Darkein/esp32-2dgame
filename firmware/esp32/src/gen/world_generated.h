@@ -20,6 +20,9 @@ struct Vec2;
 
 struct Needs;
 
+struct ItemStack;
+struct ItemStackBuilder;
+
 struct AgentState;
 struct AgentStateBuilder;
 
@@ -313,6 +316,69 @@ FLATBUFFERS_MANUALLY_ALIGNED_STRUCT(4) Needs FLATBUFFERS_FINAL_CLASS {
 };
 FLATBUFFERS_STRUCT_END(Needs, 20);
 
+struct ItemStack FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef ItemStackBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_KIND = 4,
+    VT_COUNT = 6
+  };
+  const flatbuffers::String *kind() const {
+    return GetPointer<const flatbuffers::String *>(VT_KIND);
+  }
+  uint32_t count() const {
+    return GetField<uint32_t>(VT_COUNT, 0);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyOffset(verifier, VT_KIND) &&
+           verifier.VerifyString(kind()) &&
+           VerifyField<uint32_t>(verifier, VT_COUNT, 4) &&
+           verifier.EndTable();
+  }
+};
+
+struct ItemStackBuilder {
+  typedef ItemStack Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_kind(flatbuffers::Offset<flatbuffers::String> kind) {
+    fbb_.AddOffset(ItemStack::VT_KIND, kind);
+  }
+  void add_count(uint32_t count) {
+    fbb_.AddElement<uint32_t>(ItemStack::VT_COUNT, count, 0);
+  }
+  explicit ItemStackBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<ItemStack> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<ItemStack>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<ItemStack> CreateItemStack(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    flatbuffers::Offset<flatbuffers::String> kind = 0,
+    uint32_t count = 0) {
+  ItemStackBuilder builder_(_fbb);
+  builder_.add_count(count);
+  builder_.add_kind(kind);
+  return builder_.Finish();
+}
+
+inline flatbuffers::Offset<ItemStack> CreateItemStackDirect(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    const char *kind = nullptr,
+    uint32_t count = 0) {
+  auto kind__ = kind ? _fbb.CreateString(kind) : 0;
+  return game::wire::CreateItemStack(
+      _fbb,
+      kind__,
+      count);
+}
+
 struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef AgentStateBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -323,7 +389,9 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_NEEDS = 12,
     VT_VOICE_PROFILE = 14,
     VT_GOAL = 16,
-    VT_SAYING = 18
+    VT_SAYING = 18,
+    VT_INVENTORY = 20,
+    VT_HOUSES = 22
   };
   uint32_t id() const {
     return GetField<uint32_t>(VT_ID, 0);
@@ -349,6 +417,12 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const flatbuffers::String *saying() const {
     return GetPointer<const flatbuffers::String *>(VT_SAYING);
   }
+  const flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemStack>> *inventory() const {
+    return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemStack>> *>(VT_INVENTORY);
+  }
+  uint32_t houses() const {
+    return GetField<uint32_t>(VT_HOUSES, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint32_t>(verifier, VT_ID, 4) &&
@@ -362,6 +436,10 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyString(goal()) &&
            VerifyOffset(verifier, VT_SAYING) &&
            verifier.VerifyString(saying()) &&
+           VerifyOffset(verifier, VT_INVENTORY) &&
+           verifier.VerifyVector(inventory()) &&
+           verifier.VerifyVectorOfTables(inventory()) &&
+           VerifyField<uint32_t>(verifier, VT_HOUSES, 4) &&
            verifier.EndTable();
   }
 };
@@ -394,6 +472,12 @@ struct AgentStateBuilder {
   void add_saying(flatbuffers::Offset<flatbuffers::String> saying) {
     fbb_.AddOffset(AgentState::VT_SAYING, saying);
   }
+  void add_inventory(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemStack>>> inventory) {
+    fbb_.AddOffset(AgentState::VT_INVENTORY, inventory);
+  }
+  void add_houses(uint32_t houses) {
+    fbb_.AddElement<uint32_t>(AgentState::VT_HOUSES, houses, 0);
+  }
   explicit AgentStateBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -414,8 +498,12 @@ inline flatbuffers::Offset<AgentState> CreateAgentState(
     const game::wire::Needs *needs = nullptr,
     uint8_t voice_profile = 0,
     flatbuffers::Offset<flatbuffers::String> goal = 0,
-    flatbuffers::Offset<flatbuffers::String> saying = 0) {
+    flatbuffers::Offset<flatbuffers::String> saying = 0,
+    flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemStack>>> inventory = 0,
+    uint32_t houses = 0) {
   AgentStateBuilder builder_(_fbb);
+  builder_.add_houses(houses);
+  builder_.add_inventory(inventory);
   builder_.add_saying(saying);
   builder_.add_goal(goal);
   builder_.add_needs(needs);
@@ -436,10 +524,13 @@ inline flatbuffers::Offset<AgentState> CreateAgentStateDirect(
     const game::wire::Needs *needs = nullptr,
     uint8_t voice_profile = 0,
     const char *goal = nullptr,
-    const char *saying = nullptr) {
+    const char *saying = nullptr,
+    const std::vector<flatbuffers::Offset<game::wire::ItemStack>> *inventory = nullptr,
+    uint32_t houses = 0) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   auto goal__ = goal ? _fbb.CreateString(goal) : 0;
   auto saying__ = saying ? _fbb.CreateString(saying) : 0;
+  auto inventory__ = inventory ? _fbb.CreateVector<flatbuffers::Offset<game::wire::ItemStack>>(*inventory) : 0;
   return game::wire::CreateAgentState(
       _fbb,
       id,
@@ -449,7 +540,9 @@ inline flatbuffers::Offset<AgentState> CreateAgentStateDirect(
       needs,
       voice_profile,
       goal__,
-      saying__);
+      saying__,
+      inventory__,
+      houses);
 }
 
 struct ItemState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {

@@ -43,6 +43,11 @@ struct Needs {
 
 // --- État du monde ---------------------------------------------------------
 
+table ItemStack {
+  kind:string;
+  count:uint;
+}
+
 table AgentState {
   id:uint;
   name:string;
@@ -52,6 +57,8 @@ table AgentState {
   voice_profile:ubyte;   // index du profil vocal (timbre/pitch propre à l'IA)
   goal:string;           // objectif courant (lisible), fixé par l'orchestrateur LLM
   saying:string;         // réplique en cours (vide si silencieux)
+  inventory:[ItemStack]; // ressources brutes + objets craftés
+  houses:uint;           // maisons construites (aspiration logement)
 }
 
 table ItemState {

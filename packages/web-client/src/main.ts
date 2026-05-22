@@ -52,6 +52,8 @@ async function main() {
     $('pname').textContent = a.name;
     $('pactivity').textContent = `Activité : ${ACTIVITY_LABEL[a.activity] ?? a.activity}`;
     $('goal').textContent = a.goal ? `« ${a.goal} »` : '';
+    const inv = a.inventory.map((s) => `${s.kind}×${s.count}`).join(', ');
+    $('inv').textContent = `🎒 ${inv || 'vide'}${a.houses ? `  •  🏠 ${a.houses}` : ''}`;
     for (const key of NEED_KEYS) {
       const bar = bars.get(key)!;
       const v = Math.round(a.needs[key]);

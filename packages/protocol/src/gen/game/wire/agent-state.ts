@@ -3,6 +3,7 @@
 import * as flatbuffers from 'flatbuffers';
 
 import { ActivityKind } from '../../game/wire/activity-kind';
+import { ItemStack } from '../../game/wire/item-stack';
 import { Needs } from '../../game/wire/needs';
 import { Vec2 } from '../../game/wire/vec2';
 
@@ -71,8 +72,23 @@ saying(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+inventory(index: number, obj?:ItemStack):ItemStack|null {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? (obj || new ItemStack()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+inventoryLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+houses():number {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAgentState(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(10);
 }
 
 static addId(builder:flatbuffers.Builder, id:number) {
@@ -105,6 +121,26 @@ static addGoal(builder:flatbuffers.Builder, goalOffset:flatbuffers.Offset) {
 
 static addSaying(builder:flatbuffers.Builder, sayingOffset:flatbuffers.Offset) {
   builder.addFieldOffset(7, sayingOffset, 0);
+}
+
+static addInventory(builder:flatbuffers.Builder, inventoryOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(8, inventoryOffset, 0);
+}
+
+static createInventoryVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startInventoryVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
+static addHouses(builder:flatbuffers.Builder, houses:number) {
+  builder.addFieldInt32(9, houses, 0);
 }
 
 static endAgentState(builder:flatbuffers.Builder):flatbuffers.Offset {

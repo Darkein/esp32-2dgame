@@ -9,6 +9,15 @@ import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
 import { decideAction } from './ai/utility';
 import { Orchestrator } from './ai/orchestrator';
+import {
+  HOUSE_COST,
+  add,
+  craftable,
+  inventoryToStacks,
+  pay,
+  take,
+  tileResource,
+} from './crafting';
 
 const NAMES = [
   'Camille', 'Hugo', 'Léa', 'Noé', 'Jade', 'Lucas', 'Manon', 'Théo',
@@ -99,6 +108,8 @@ export class Simulation {
           voiceProfile: i % VOICE_PROFILES.length,
           goal: 'commencer la journée',
           saying: '',
+          inventory: [],
+          houses: 0,
         },
         personality: this.randomPersonality(),
         aspirations,
@@ -112,6 +123,9 @@ export class Simulation {
         nextThinkTick: this.rng.int(300),
         thinking: false,
         sayingUntilTick: 0,
+        inventory: new Map(),
+        houses: 0,
+        nextGatherTick: 0,
       };
       this.agents.push(agent);
     }
@@ -166,6 +180,60 @@ export class Simulation {
     // Arrivé : exécuter l'intention.
     agent.state.activity = agent.intent;
     if (agent.intent === 'socializing') this.trySocialize(agent);
+    else if (agent.intent === 'working') this.tryGather(agent);
+    else if (agent.intent === 'crafting') this.tryCraft(agent);
+    else if (agent.intent === 'eating') this.tryEat(agent);
+  }
+
+  /** Récolte la ressource de la tuile courante, à cadence limitée. */
+  private tryGather(agent: Agent): void {
+    if (this.clock.tick < agent.nextGatherTick) return;
+    const res = tileResource(this.world.tileAt(Math.round(agent.state.pos.x), Math.round(agent.state.pos.y)));
+    if (!res) return;
+    add(agent.inventory, res, 1);
+    agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
+    agent.memory.add(this.clock.tick, `J'ai récolté du ${res}`, 2);
+  }
+
+  /** Transforme des ressources en objets, puis construit une maison si possible. */
+  private tryCraft(agent: Agent): void {
+    if (this.clock.tick < agent.nextGatherTick) return;
+    agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
+
+    // Priorité : bâtir une maison (aspiration logement) si les matériaux sont là.
+    if (pay(agent.inventory, HOUSE_COST)) {
+      agent.houses++;
+      agent.state.houses = agent.houses;
+      const spot = this.world.nearestWalkable(Math.round(agent.home.x) + 1, Math.round(agent.home.y));
+      this.world.addBuilding('maison-construite', spot);
+      agent.memory.add(this.clock.tick, 'J\'ai construit une maison !', 8);
+      return;
+    }
+    const inv = agent.inventory;
+    const has = (k: string) => inv.get(k) ?? 0;
+    // Cuire du pain si on a du blé et peu de réserves ; sinon fabriquer des planches
+    // (vers la maison). L'outil reste un repli.
+    let made: string | null = null;
+    if (has('ble') >= 2 && has('pain') < 2 && pay(inv, { ble: 2 })) made = 'pain';
+    else if (has('bois') >= 2 && pay(inv, { bois: 2 })) made = 'planche';
+    else {
+      const recipe = craftable(inv, true);
+      if (recipe && pay(inv, recipe.inputs as Record<string, number>)) made = recipe.id;
+    }
+    if (made) {
+      add(inv, made, 1);
+      agent.memory.add(this.clock.tick, `J'ai fabriqué : ${made}`, 3);
+    }
+  }
+
+  /** Manger : consomme du pain (meilleur rassasiement) si disponible. */
+  private tryEat(agent: Agent): void {
+    if (agent.state.needs.hunger > 95) return;
+    if (this.clock.tick < agent.nextGatherTick) return;
+    if (take(agent.inventory, 'pain', 1)) {
+      agent.state.needs.hunger = Math.min(100, agent.state.needs.hunger + 25);
+      agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
+    }
   }
 
   private trySocialize(agent: Agent): void {
@@ -204,6 +272,8 @@ export class Simulation {
         ...a.state,
         pos: { x: a.state.pos.x, y: a.state.pos.y },
         needs: { ...a.state.needs },
+        inventory: inventoryToStacks(a.inventory),
+        houses: a.houses,
       })),
       items: this.world.items.map((i) => ({ ...i })),
       buildings: this.world.buildings.map((b) => ({ ...b })),

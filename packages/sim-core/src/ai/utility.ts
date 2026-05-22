@@ -76,14 +76,28 @@ export function decideAction(
     decision: { activity: 'eating', target: farm, reason: 'manger' },
   });
 
-  // Travailler — pendant les heures de jour, modulé par la conscienciosité.
+  // Travailler — récolter la ressource dont l'agent manque le plus (bois/pierre/blé),
+  // pour pouvoir crafter et bâtir au lieu d'accumuler une seule ressource.
   const workHours = clock.timeOfDay >= 8 && clock.timeOfDay <= 18;
+  const have = (k: string) => agent.inventory.get(k) ?? 0;
+  const deficits: [TileType, number][] = [
+    ['forest', 8 - have('bois')],
+    ['stone', 4 - have('pierre')],
+    ['farm', 4 - have('ble')],
+  ];
+  deficits.sort((a, b) => b[1] - a[1]);
+  const wantTile = deficits[0]![1] > 0 ? deficits[0]![0] : 'forest';
+  const resourceTile =
+    findNearestTile(world, agent.state.pos, wantTile) ??
+    findNearestTile(world, agent.state.pos, 'forest') ??
+    findNearestTile(world, agent.state.pos, 'farm') ??
+    agent.workplace;
   candidates.push({
     score:
       (workHours ? 0.9 : 0.05) * (0.5 + p.industriousness) * (0.5 + p.conscientiousness) -
       norm(n.energy) * 0.5 -
       norm(n.hunger) * 0.5,
-    decision: { activity: 'working', target: agent.workplace, reason: 'travailler' },
+    decision: { activity: 'working', target: resourceTile, reason: 'récolter des ressources' },
   });
 
   // Socialiser — selon l'extraversion et le besoin social.
