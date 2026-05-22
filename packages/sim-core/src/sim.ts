@@ -4,14 +4,23 @@ import type { LLMProvider } from '@game/llm';
 import { World } from './world';
 import { SimClock } from './clock';
 import { Rng } from './rng';
-import { type Agent, type ActivePlan, type Personality, makeNeeds, distance } from './entities';
+import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance } from './entities';
 import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
 import { decideAction } from './ai/utility';
 import { choosePlan } from './ai/planner';
 import { Orchestrator } from './ai/orchestrator';
+import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
-import { BUILD_BY_KIND, FOOD_SATIETY, RECIPE_BY_ID, STARTING_INVENTORY } from './catalog';
+import {
+  BUILD_BY_KIND,
+  FOOD_SATIETY,
+  JOB_PROFILES,
+  RECIPE_BY_ID,
+  STARTING_COINS,
+  STARTING_INVENTORY,
+  type Job,
+} from './catalog';
 
 const NAMES = [
   'Camille', 'Hugo', 'Léa', 'Noé', 'Jade', 'Lucas', 'Manon', 'Théo',
@@ -42,6 +51,7 @@ export class Simulation {
   readonly world: World;
   readonly clock: SimClock;
   readonly agents: Agent[] = [];
+  readonly market = new Market();
   private readonly rng: Rng;
   private readonly orchestrator: Orchestrator;
   private readonly dialogueQueue: DialogueEvent[] = [];
@@ -53,6 +63,11 @@ export class Simulation {
     this.clock = new SimClock(opts.ticksPerSecond ?? 15);
     this.world = new World(opts.width ?? 48, opts.height ?? 48, this.rng, this.clock.ticksPerDay);
     this.orchestrator = new Orchestrator(opts.provider ?? null, 600, (e) => this.dialogueQueue.push(e));
+    // Marché central : place d'échange unique du village.
+    this.world.addBuilding('marche', this.world.nearestWalkable(
+      Math.floor(this.world.width / 2),
+      Math.floor(this.world.height / 2),
+    ));
     this.spawnAgents(opts.agentCount ?? 8);
   }
 
@@ -88,6 +103,8 @@ export class Simulation {
       const aspirations = [this.rng.pick(ASPIRATIONS), this.rng.pick(ASPIRATIONS)].filter(
         (v, idx, a) => a.indexOf(v) === idx,
       );
+      const personality = this.randomPersonality();
+      const job = assignJob(aspirations, personality);
 
       const agent: Agent = {
         state: {
@@ -104,9 +121,11 @@ export class Simulation {
           saying: '',
           inventory: [],
           houses: 0,
+          job,
+          coins: STARTING_COINS,
         },
         plan: null,
-        personality: this.randomPersonality(),
+        personality,
         aspirations,
         home,
         workplace,
@@ -182,12 +201,14 @@ export class Simulation {
     else if (agent.intent === 'working') this.advanceWork(agent);
     else if (agent.intent === 'crafting') this.advancePlan(agent);
     else if (agent.intent === 'eating') this.tryEat(agent);
+    else if (agent.intent === 'trading') this.tryTrade(agent);
   }
 
-  /** Cible de déplacement selon l'activité : poste de craft, chantier, ou tuile à exploiter. */
+  /** Cible de déplacement selon l'activité : poste de craft, chantier, marché ou gisement. */
   private resolveTarget(agent: Agent, activity: string, fallback: Vec2): Vec2 {
     if (activity === 'crafting') return this.planTarget(agent) ?? fallback;
     if (activity === 'working') return this.workTarget(agent) ?? fallback;
+    if (activity === 'trading') return this.world.findBuilding('marche', agent.state.pos)?.pos ?? fallback;
     return fallback;
   }
 
@@ -203,12 +224,14 @@ export class Simulation {
     return b ? b.pos : station === 'atelier' ? agent.workplace : null;
   }
 
-  /** Tuile à exploiter : récolte d'un champ mûr, semis, ou gisement le plus utile. */
+  /** Tuile à exploiter, orientée par le métier : récolte d'un champ mûr, semis, ou gisement. */
   private workTarget(agent: Agent): Vec2 | null {
     const pos = agent.state.pos;
     const has = (k: string) => count(agent.inventory, k);
+    // Un champ mûr à portée se récolte toujours (ne pas gâcher la moisson).
     const ripe = this.world.findTile(pos, 'champ_mur');
     if (ripe) return ripe;
+    // Le fermier sème s'il a des graines et un champ libre.
     if (has('graine') >= 1) {
       const farm = this.world.findTile(pos, 'farm');
       if (farm) return farm;
@@ -218,6 +241,12 @@ export class Simulation {
       const edge = this.world.findWaterEdge(pos);
       if (edge) return edge;
     }
+    // Gisement privilégié par le métier, sinon celui dont l'agent manque le plus.
+    const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
+    for (const t of profile.gather) {
+      const spot = this.world.findTile(pos, t);
+      if (spot) return spot;
+    }
     const deficits: [TileType, number][] = [
       ['forest', 8 - has('bois')],
       ['stone', 5 - has('pierre')],
@@ -226,11 +255,7 @@ export class Simulation {
     ];
     deficits.sort((a, b) => b[1] - a[1]);
     const wantTile = deficits[0]![1] > 0 ? deficits[0]![0] : 'forest';
-    return (
-      this.world.findTile(pos, wantTile) ??
-      this.world.findTile(pos, 'forest') ??
-      agent.workplace
-    );
+    return this.world.findTile(pos, wantTile) ?? this.world.findTile(pos, 'forest') ?? agent.workplace;
   }
 
   /** Travail sur place : récolter un champ mûr, semer, ou exploiter un gisement. */
@@ -277,7 +302,7 @@ export class Simulation {
     }
     const b = BUILD_BY_KIND[intent.buildKind]!;
     if (!pay(agent.inventory, b.inputs)) return null;
-    const site = this.pickBuildSite(agent);
+    const site = this.pickBuildSite(agent, intent.buildKind);
     const chantier = this.world.addBuilding('chantier', site);
     return { type: 'build', kind: intent.buildKind, site, buildingId: chantier.id, progress: 0 };
   }
@@ -318,16 +343,62 @@ export class Simulation {
     return b != null && distance(pos, b.pos) < 1.6;
   }
 
-  /** Emplacement de construction proche du domicile, sans superposer un bâtiment. */
-  private pickBuildSite(agent: Agent): Vec2 {
-    const hx = Math.round(agent.home.x);
-    const hy = Math.round(agent.home.y);
-    const offsets: [number, number][] = [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3]];
+  /** Emplacement de construction intelligent selon le type de bâtiment. */
+  private pickBuildSite(agent: Agent, kind: string): Vec2 {
+    // Le puits se place au plus près de l'eau ; le four/atelier/entrepôt se regroupent
+    // autour du marché (cœur du village) ; la maison reste près du domicile.
+    let anchor: Vec2;
+    if (kind === 'puits') {
+      anchor = this.world.findWaterEdge(agent.state.pos) ?? agent.home;
+    } else if (kind === 'four' || kind === 'atelier' || kind === 'entrepot') {
+      anchor = this.world.findBuilding('marche', agent.state.pos)?.pos ?? agent.home;
+    } else {
+      anchor = agent.home;
+    }
+    const ax = Math.round(anchor.x);
+    const ay = Math.round(anchor.y);
+    const offsets: [number, number][] = [
+      [0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3], [-3, 1], [1, -3],
+    ];
     for (const [dx, dy] of offsets) {
-      const spot = this.world.nearestWalkable(hx + dx, hy + dy);
+      const spot = this.world.nearestWalkable(ax + dx, ay + dy);
       if (!this.world.buildingAt(spot.x, spot.y)) return spot;
     }
-    return this.world.nearestWalkable(hx + 1, hy + 1);
+    return this.world.nearestWalkable(ax + 1, ay + 1);
+  }
+
+  /** Échange au marché : vend les surplus, achète de quoi manger si la faim presse. */
+  private tryTrade(agent: Agent): void {
+    if (this.clock.tick < agent.nextGatherTick) return;
+    const marche = this.world.findBuilding('marche', agent.state.pos);
+    if (!marche || distance(agent.state.pos, marche.pos) > 1.6) return;
+    agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
+
+    const inv = agent.inventory;
+    const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
+    // On garde quelques unités de tout (matières premières utiles), on vend le reste.
+    const KEEP = 4;
+    let earned = 0;
+    for (const [kind, qty] of [...inv.entries()]) {
+      if (qty <= KEEP || !this.market.tradable(kind)) continue;
+      if (kind === 'pain' || kind === 'ble') continue; // garder la nourriture
+      earned += this.market.sell(inv, kind, qty - KEEP);
+    }
+    if (earned > 0) {
+      agent.state.coins += earned;
+      agent.memory.add(this.clock.tick, `J'ai vendu des biens (+${earned} pièces)`, 3);
+    }
+
+    // Achats : nourriture si la faim monte, sinon une matière première utile au métier.
+    if (agent.state.needs.hunger < 50 && count(inv, 'pain') < 1) {
+      const spent = this.market.buy(inv, 'pain', 2, agent.state.coins);
+      agent.state.coins -= spent;
+    }
+    const want = profile.gather.length === 0 ? 'bois' : null;
+    if (want && count(inv, want) < 2) {
+      const spent = this.market.buy(inv, want, 3, agent.state.coins);
+      agent.state.coins -= spent;
+    }
   }
 
   /** Manger : consomme le meilleur aliment disponible (cf. table de rassasiement). */

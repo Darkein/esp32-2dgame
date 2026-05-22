@@ -91,3 +91,50 @@ export const FOOD_SATIETY: Record<string, number> = {
 export const STARTING_INVENTORY: Record<string, number> = {
   ble: 5,
 };
+
+/** Monnaie de départ d'un agent (économie de marché). */
+export const STARTING_COINS = 20;
+
+// --- Métiers --------------------------------------------------------------
+
+export type Job = 'fermier' | 'bucheron' | 'mineur' | 'artisan' | 'boulanger';
+
+export interface JobProfile {
+  /** Tuiles à exploiter en priorité (récolte/agriculture). */
+  gather: TileType[];
+  /** Recettes que le métier privilégie (ordre de préférence). */
+  crafts: string[];
+  /** Bâtiments que le métier érige volontiers. */
+  builds: string[];
+}
+
+export const JOB_PROFILES: Record<Job, JobProfile> = {
+  fermier: { gather: ['champ_mur', 'farm'], crafts: ['graine', 'farine'], builds: ['entrepot'] },
+  bucheron: { gather: ['forest'], crafts: ['planche'], builds: [] },
+  mineur: { gather: ['stone', 'dirt', 'sand'], crafts: [], builds: ['puits'] },
+  artisan: { gather: ['forest', 'stone'], crafts: ['outil', 'meuble', 'poterie', 'planche'], builds: ['atelier', 'maison'] },
+  boulanger: { gather: ['champ_mur'], crafts: ['farine', 'pain'], builds: ['four'] },
+};
+
+export const JOBS = Object.keys(JOB_PROFILES) as Job[];
+
+// --- Marché : prix de base par bien échangeable ----------------------------
+
+/** Prix d'équilibre indicatif (en pièces) ; le marché les fait varier selon l'offre. */
+export const BASE_PRICE: Record<string, number> = {
+  eau: 1,
+  graine: 1,
+  bois: 2,
+  sable: 2,
+  ble: 2,
+  pierre: 3,
+  argile: 3,
+  farine: 3,
+  planche: 4,
+  brique: 6,
+  verre: 7,
+  pain: 8,
+  outil: 10,
+  poterie: 12,
+  meuble: 20,
+};

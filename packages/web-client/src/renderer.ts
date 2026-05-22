@@ -24,6 +24,7 @@ const BUILDING_COLOR: Record<string, { roof: number; wall: number; alpha?: numbe
   four: { roof: 0x7a3b2e, wall: 0x8d8d8d },
   entrepot: { roof: 0x4a6d8c, wall: 0xb0a080 },
   puits: { roof: 0x6f7d86, wall: 0x8d8d8d },
+  marche: { roof: 0xe0a32e, wall: 0xb5793a },
   chantier: { roof: 0xe8e0a0, wall: 0xc8b870, alpha: 0.5 },
 };
 

@@ -87,8 +87,20 @@ houses():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+job():string|null
+job(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+job(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+coins():number {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAgentState(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(12);
 }
 
 static addId(builder:flatbuffers.Builder, id:number) {
@@ -141,6 +153,14 @@ static startInventoryVector(builder:flatbuffers.Builder, numElems:number) {
 
 static addHouses(builder:flatbuffers.Builder, houses:number) {
   builder.addFieldInt32(9, houses, 0);
+}
+
+static addJob(builder:flatbuffers.Builder, jobOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, jobOffset, 0);
+}
+
+static addCoins(builder:flatbuffers.Builder, coins:number) {
+  builder.addFieldInt32(11, coins, 0);
 }
 
 static endAgentState(builder:flatbuffers.Builder):flatbuffers.Offset {

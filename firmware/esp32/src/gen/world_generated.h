@@ -119,11 +119,12 @@ enum ActivityKind : uint8_t {
   ActivityKind_Crafting = 5,
   ActivityKind_Talking = 6,
   ActivityKind_Socializing = 7,
+  ActivityKind_Trading = 8,
   ActivityKind_MIN = ActivityKind_Idle,
-  ActivityKind_MAX = ActivityKind_Socializing
+  ActivityKind_MAX = ActivityKind_Trading
 };
 
-inline const ActivityKind (&EnumValuesActivityKind())[8] {
+inline const ActivityKind (&EnumValuesActivityKind())[9] {
   static const ActivityKind values[] = {
     ActivityKind_Idle,
     ActivityKind_Walking,
@@ -132,13 +133,14 @@ inline const ActivityKind (&EnumValuesActivityKind())[8] {
     ActivityKind_Working,
     ActivityKind_Crafting,
     ActivityKind_Talking,
-    ActivityKind_Socializing
+    ActivityKind_Socializing,
+    ActivityKind_Trading
   };
   return values;
 }
 
 inline const char * const *EnumNamesActivityKind() {
-  static const char * const names[9] = {
+  static const char * const names[10] = {
     "Idle",
     "Walking",
     "Sleeping",
@@ -147,13 +149,14 @@ inline const char * const *EnumNamesActivityKind() {
     "Crafting",
     "Talking",
     "Socializing",
+    "Trading",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameActivityKind(ActivityKind e) {
-  if (flatbuffers::IsOutRange(e, ActivityKind_Idle, ActivityKind_Socializing)) return "";
+  if (flatbuffers::IsOutRange(e, ActivityKind_Idle, ActivityKind_Trading)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesActivityKind()[index];
 }
@@ -400,7 +403,9 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_GOAL = 16,
     VT_SAYING = 18,
     VT_INVENTORY = 20,
-    VT_HOUSES = 22
+    VT_HOUSES = 22,
+    VT_JOB = 24,
+    VT_COINS = 26
   };
   uint32_t id() const {
     return GetField<uint32_t>(VT_ID, 0);
@@ -432,6 +437,12 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint32_t houses() const {
     return GetField<uint32_t>(VT_HOUSES, 0);
   }
+  const flatbuffers::String *job() const {
+    return GetPointer<const flatbuffers::String *>(VT_JOB);
+  }
+  uint32_t coins() const {
+    return GetField<uint32_t>(VT_COINS, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint32_t>(verifier, VT_ID, 4) &&
@@ -449,6 +460,9 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyVector(inventory()) &&
            verifier.VerifyVectorOfTables(inventory()) &&
            VerifyField<uint32_t>(verifier, VT_HOUSES, 4) &&
+           VerifyOffset(verifier, VT_JOB) &&
+           verifier.VerifyString(job()) &&
+           VerifyField<uint32_t>(verifier, VT_COINS, 4) &&
            verifier.EndTable();
   }
 };
@@ -487,6 +501,12 @@ struct AgentStateBuilder {
   void add_houses(uint32_t houses) {
     fbb_.AddElement<uint32_t>(AgentState::VT_HOUSES, houses, 0);
   }
+  void add_job(flatbuffers::Offset<flatbuffers::String> job) {
+    fbb_.AddOffset(AgentState::VT_JOB, job);
+  }
+  void add_coins(uint32_t coins) {
+    fbb_.AddElement<uint32_t>(AgentState::VT_COINS, coins, 0);
+  }
   explicit AgentStateBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -509,8 +529,12 @@ inline flatbuffers::Offset<AgentState> CreateAgentState(
     flatbuffers::Offset<flatbuffers::String> goal = 0,
     flatbuffers::Offset<flatbuffers::String> saying = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemStack>>> inventory = 0,
-    uint32_t houses = 0) {
+    uint32_t houses = 0,
+    flatbuffers::Offset<flatbuffers::String> job = 0,
+    uint32_t coins = 0) {
   AgentStateBuilder builder_(_fbb);
+  builder_.add_coins(coins);
+  builder_.add_job(job);
   builder_.add_houses(houses);
   builder_.add_inventory(inventory);
   builder_.add_saying(saying);
@@ -535,11 +559,14 @@ inline flatbuffers::Offset<AgentState> CreateAgentStateDirect(
     const char *goal = nullptr,
     const char *saying = nullptr,
     const std::vector<flatbuffers::Offset<game::wire::ItemStack>> *inventory = nullptr,
-    uint32_t houses = 0) {
+    uint32_t houses = 0,
+    const char *job = nullptr,
+    uint32_t coins = 0) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   auto goal__ = goal ? _fbb.CreateString(goal) : 0;
   auto saying__ = saying ? _fbb.CreateString(saying) : 0;
   auto inventory__ = inventory ? _fbb.CreateVector<flatbuffers::Offset<game::wire::ItemStack>>(*inventory) : 0;
+  auto job__ = job ? _fbb.CreateString(job) : 0;
   return game::wire::CreateAgentState(
       _fbb,
       id,
@@ -551,7 +578,9 @@ inline flatbuffers::Offset<AgentState> CreateAgentStateDirect(
       goal__,
       saying__,
       inventory__,
-      houses);
+      houses,
+      job__,
+      coins);
 }
 
 struct ItemState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {

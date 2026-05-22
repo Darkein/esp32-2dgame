@@ -40,9 +40,11 @@ const TILE_FROM_FB: TileType[] = [
 ];
 const ACT_TO_FB: Record<ActivityKind, number> = {
   idle: 0, walking: 1, sleeping: 2, eating: 3, working: 4, crafting: 5, talking: 6, socializing: 7,
+  trading: 8,
 };
 const ACT_FROM_FB: ActivityKind[] = [
   'idle', 'walking', 'sleeping', 'eating', 'working', 'crafting', 'talking', 'socializing',
+  'trading',
 ];
 
 // --- Encodage --------------------------------------------------------------
@@ -51,6 +53,7 @@ function encodeAgent(b: flatbuffers.Builder, a: AgentState): number {
   const nameOff = b.createString(a.name);
   const goalOff = b.createString(a.goal);
   const sayOff = b.createString(a.saying);
+  const jobOff = b.createString(a.job);
   const stackOffsets = a.inventory.map((st) => {
     const kindOff = b.createString(st.kind);
     return FbItemStack.createItemStack(b, kindOff, st.count);
@@ -71,6 +74,8 @@ function encodeAgent(b: flatbuffers.Builder, a: AgentState): number {
   FbAgentState.addSaying(b, sayOff);
   FbAgentState.addInventory(b, invVec);
   FbAgentState.addHouses(b, a.houses);
+  FbAgentState.addJob(b, jobOff);
+  FbAgentState.addCoins(b, a.coins);
   return FbAgentState.endAgentState(b);
 }
 
@@ -171,6 +176,8 @@ function decodeAgent(a: FbAgentState): AgentState {
     saying: a.saying() ?? '',
     inventory,
     houses: a.houses(),
+    job: a.job() ?? '',
+    coins: a.coins(),
   };
 }
 

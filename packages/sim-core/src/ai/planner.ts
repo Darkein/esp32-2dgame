@@ -3,7 +3,7 @@
 // la matérialisation (paiement des matériaux, chantier) est faite par `sim.advancePlan`.
 import type { Agent } from '../entities';
 import type { World } from '../world';
-import { BUILD_BY_KIND, RECIPE_BY_ID } from '../catalog';
+import { BUILD_BY_KIND, JOB_PROFILES, RECIPE_BY_ID, type Job } from '../catalog';
 import { canAfford, count } from '../crafting';
 
 export type PlanIntent =
@@ -48,7 +48,17 @@ export function choosePlan(agent: Agent, world: World): PlanIntent | null {
     if (food) return food;
   }
 
-  // 2. Aspirations.
+  // 2. Métier : l'agent privilégie les fabrications puis les chantiers de son métier.
+  const profile = JOB_PROFILES[agent.state.job as Job];
+  if (profile) {
+    const byJob = first(
+      ...profile.crafts.map((id) => tryCraft(id)),
+      ...profile.builds.map((k) => tryBuild(k)),
+    );
+    if (byJob) return byJob;
+  }
+
+  // 3. Aspirations.
   if (aspir.includes('maison') || aspir.includes('famille')) {
     const b = tryBuild('maison');
     if (b) return b;
@@ -62,7 +72,7 @@ export function choosePlan(agent: Agent, world: World): PlanIntent | null {
     if (r) return r;
   }
 
-  // 3. Repli : valoriser les surplus puis améliorer le village.
+  // 4. Repli : valoriser les surplus puis améliorer le village.
   if (has('ble') >= 2 && has('graine') < 3) {
     const r = tryCraft('graine');
     if (r) return r;

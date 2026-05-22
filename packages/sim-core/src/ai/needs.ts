@@ -20,6 +20,7 @@ const GAIN: Record<ActivityKind, Partial<Needs>> = {
   crafting: { fun: 0.05 },
   talking: { social: 0.3, fun: 0.1 },
   socializing: { social: 0.35, fun: 0.15 },
+  trading: { social: 0.1 },
 };
 
 function clamp(v: number): number {

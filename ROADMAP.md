@@ -67,7 +67,13 @@
 - [x] **Construction = vrai bâtiment** (maison, four, atelier, puits, entrepôt) : chantier
   visible → bâtiment fini (`sim.advancePlan`)
 - [x] **Rendu des bâtiments** (formes iso) + couleurs des cultures (`renderer.ts`)
-- [ ] Métiers spécialisés, échanges/économie entre IA, placement libre de bâtiments
+- [x] **Métiers spécialisés** (fermier, bûcheron, mineur, artisan, boulanger) déduits de la
+  personnalité/aspiration, orientant récolte/craft/construction (`catalog.ts`, `entities.ts`)
+- [x] **Économie monétaire** : marché central à prix dynamiques (offre/demande), les IA vendent
+  leurs surplus et achètent ce qui leur manque (`market.ts`, activité `trading`)
+- [x] **Placement intelligent** des bâtiments par les IA (puits près de l'eau, four/atelier/
+  entrepôt autour du marché, maison près du domicile) (`sim.pickBuildSite`)
+- [ ] Échanges directs IA↔IA (troc) et placement manuel par le joueur
 
 ## ⬜ Phase 8 — Client ESP32-S3 Touch
 - [ ] Projet PlatformIO (LovyanGFX/LVGL), rendu tuiles + UI tactile

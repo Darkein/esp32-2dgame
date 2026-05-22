@@ -33,6 +33,7 @@ enum ActivityKind : ubyte {
   Crafting,
   Talking,
   Socializing,
+  Trading,        // vente/achat au marché du village
 }
 
 // Besoins d'un agent, normalisés 0..100.
@@ -61,7 +62,9 @@ table AgentState {
   goal:string;           // objectif courant (lisible), fixé par l'orchestrateur LLM
   saying:string;         // réplique en cours (vide si silencieux)
   inventory:[ItemStack]; // ressources brutes + objets craftés
-  houses:uint;           // maisons construites (aspiration logement)
+  houses:uint;           // bâtiments construits (aspiration logement)
+  job:string;            // métier (fermier, bucheron, mineur, artisan, boulanger…)
+  coins:uint;            // monnaie détenue (économie de marché)
 }
 
 table ItemState {

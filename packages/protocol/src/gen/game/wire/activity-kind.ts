@@ -8,5 +8,6 @@ export enum ActivityKind {
   Working = 4,
   Crafting = 5,
   Talking = 6,
-  Socializing = 7
+  Socializing = 7,
+  Trading = 8
 }

@@ -86,6 +86,19 @@ export function decideAction(
     decision: { activity: 'crafting', target: agent.home, reason: 'se détendre / bricoler' },
   });
 
+  // Commercer — aller au marché si l'on a des surplus à vendre ou faim sans nourriture.
+  const market = world.findBuilding('marche', agent.state.pos);
+  if (market) {
+    let surplus = 0;
+    for (const [k, q] of agent.inventory) if (k !== 'pain' && k !== 'ble') surplus += Math.max(0, q - 4);
+    const hungryNoFood = n.hunger < 50 && (agent.inventory.get('pain') ?? 0) < 1 && agent.state.coins > 3;
+    const desire = Math.min(1, surplus / 8) + (hungryNoFood ? 0.5 : 0);
+    candidates.push({
+      score: (workHours ? 0.8 : 0.2) * desire * (0.6 + p.conscientiousness * 0.6),
+      decision: { activity: 'trading', target: market.pos, reason: 'aller au marché' },
+    });
+  }
+
   // Repli : flâner.
   candidates.push({
     score: 0.15,

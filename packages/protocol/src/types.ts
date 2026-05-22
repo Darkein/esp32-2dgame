@@ -22,7 +22,8 @@ export type ActivityKind =
   | 'working'
   | 'crafting'
   | 'talking'
-  | 'socializing';
+  | 'socializing'
+  | 'trading';
 
 export interface Vec2 {
   x: number;
@@ -57,8 +58,12 @@ export interface AgentState {
   saying: string;
   /** Ressources brutes + objets craftés portés par l'agent. */
   inventory: ItemStack[];
-  /** Nombre de maisons construites (aspiration logement). */
+  /** Nombre de bâtiments construits (aspiration logement). */
   houses: number;
+  /** Métier de l'agent (oriente récolte/craft/construction). */
+  job: string;
+  /** Monnaie détenue (économie de marché). */
+  coins: number;
 }
 
 export interface ItemState {
