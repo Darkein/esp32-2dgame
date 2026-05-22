@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: esp32-2dgame-server
+    env: node
+    plan: free
+    region: frankfurt
+    autoDeploy: true
+    healthCheckPath: /health
+    buildCommand: corepack enable && corepack prepare pnpm@10.33.0 --activate && pnpm install --frozen-lockfile
+    startCommand: pnpm --filter @game/server start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: AGENTS
+        value: "10"
+      - key: TPS
+        value: "15"
+      # LLM cloud (optionnel) : saisir dans le dashboard Render, jamais commités.
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        sync: false
+      - key: LLM_MODEL
+        sync: false

@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { Simulation } from '@game/sim-core';
 import { resolveProvider } from '@game/llm';
@@ -24,8 +25,17 @@ async function main() {
   console.log(`[serveur] LLM: ${provider ? provider.name : 'aucun (fast-layer seul)'}`);
 
   const sim = new Simulation({ provider, agentCount: Number(process.env.AGENTS ?? 10), ticksPerSecond: TPS });
-  const wss = new WebSocketServer({ port: PORT });
-  console.log(`[serveur] WebSocket sur ws://localhost:${PORT}`);
+
+  // Serveur HTTP minimal : sert le health check (sondé par l'hébergeur) ; le WebSocket s'y greffe.
+  const http = createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  const wss = new WebSocketServer({ server: http });
+  http.listen(PORT, '0.0.0.0', () => console.log(`[serveur] WebSocket+HTTP sur :${PORT}`));
 
   const send = (ws: WebSocket, msg: ServerMessage) => {
     if (ws.readyState === ws.OPEN) ws.send(encodeServerMessage(msg));
