@@ -1,0 +1,28 @@
+{
+  "name": "esp32-2dgame",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Jeu de vie isométrique 2D peuplé d'IA (serveur autoritatif + clients web/ESP32)",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:web": "pnpm --filter @game/web-client build",
+    "dev:web": "pnpm --filter @game/web-client dev",
+    "dev:server": "pnpm --filter @game/server dev",
+    "codegen": "bash tools/codegen.sh",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

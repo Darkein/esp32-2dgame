@@ -1,0 +1,61 @@
+# ROADMAP
+
+État d'avancement par phases. Cocher au fur et à mesure. Voir `CLAUDE.md` pour l'architecture.
+
+## ✅ Phase 0 — Fondations, outillage & CI
+- [x] Monorepo pnpm + TypeScript strict + Vitest
+- [x] Schéma `protocol/schema/world.fbs` + codegen `flatc` (TS + C++)
+- [x] `CLAUDE.md` + `ROADMAP.md`
+- [x] CI : typecheck + tests + build (`ci.yml`)
+- [x] Déploiement GitHub Pages automatique (`deploy-pages.yml`)
+  - [ ] **À faire une fois côté GitHub** : Settings → Pages → Source = GitHub Actions
+
+## ✅ Phase 1 — Cœur de simulation (`sim-core`, runtime-agnostique)
+- [x] Grille isométrique + génération procédurale (eau, forêts, champs)
+- [x] Cycle jour/nuit (`SimClock`)
+- [x] Entités, boucle de tick, RNG déterministe
+- [x] Crafting/récolte minimal (champs = source de nourriture)  ← *à enrichir (Phase 7)*
+- [x] Tests unitaires
+
+## ✅ Phase 2 — Client web + transport double + Pages
+- [x] Rendu isométrique PixiJS, caméra pan/zoom, tactile
+- [x] Transport `WorkerTransport` (démo Pages) et `WebSocketTransport` (serveur)
+- [x] Interpolation des positions, éclairage jour/nuit, HUD horloge
+
+## ✅ Phase 3 — IA couche rapide (vie autonome < 0,5 s)
+- [x] Besoins décroissants (énergie, faim, social, hygiène, détente)
+- [x] Sélection d'action par utilité (dormir la nuit, manger, travailler, socialiser)
+- [x] Test de latence de décision
+
+## ✅ Phase 4 — Orchestrateur LLM (objectifs, aspirations, dialogues FR)
+- [x] `LLMProvider` pluggable (Ollama local + cloud) + `resolveProvider`
+- [x] Orchestrateur par agent, **asynchrone non bloquant** (objectif + biais d'action)
+- [x] Flux de mémoire + récupération (récence + importance)
+- [x] Dialogues IA↔IA en français (déclenchés par proximité)
+- [ ] Embeddings pour la pertinence sémantique du retrieval (amélioration)
+- [ ] Réflexions périodiques (synthèse de souvenirs en croyances)
+
+## ⬜ Phase 5 — Interaction utilisateur (texte)  *(amorcée : `Simulation.handleChat`)*
+- [x] UI chat ciblant une IA + envoi d'ordres
+- [ ] Évaluation des ordres par l'orchestrateur (accepte/refuse selon personnalité/relation)
+- [ ] Réponse conversationnelle dédiée au joueur (canal séparé des dialogues IA↔IA)
+
+## ⬜ Phase 6 — Voix : par-IA + simultanée (TTS + STT)
+- [x] Profils vocaux + Web Speech (démo navigateur, voix FR distinctes)
+- [ ] Backend **Piper** côté serveur (PCM) + streaming `AudioEvent`
+- [ ] Lecture **multi-canaux** réellement simultanée côté client
+- [ ] STT **whisper.cpp** (entrée vocale du joueur)
+
+## ⬜ Phase 7 — Profondeur gameplay
+- [ ] Arbres de crafting, inventaire, ressources récoltables
+- [ ] Construction de maisons / logement, métiers, économie & échanges entre IA
+
+## ⬜ Phase 8 — Client ESP32-S3 Touch
+- [ ] Projet PlatformIO (LovyanGFX/LVGL), rendu tuiles + UI tactile
+- [ ] Client WebSocket + décodage FlatBuffers C++ (code généré présent)
+- [ ] Audio I2S (TTS) + micro (STT)
+- [ ] Optimisations RAM/PSRAM, zone visible réduite
+
+## Dette / migrations
+- [ ] Passer le transport WebSocket au **binaire FlatBuffers** (au lieu de JSON) — clé pour l'ESP32
+- [ ] Déploiement d'un serveur hébergé (pour LLM/voix accessibles depuis le web sans poste local)

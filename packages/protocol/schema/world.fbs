@@ -1,0 +1,129 @@
+// Schéma de protocole — SOURCE DE VÉRITÉ partagée serveur (TS) / web (TS) / ESP32 (C++).
+// Génère le code via `pnpm codegen` (flatc → TS dans gen-ts/, C++ dans gen-cpp/).
+// Le format binaire FlatBuffers est utilisé sur le transport WebSocket.
+
+namespace game.wire;
+
+// --- Types de base ---------------------------------------------------------
+
+struct Vec2 {
+  x:float;
+  y:float;
+}
+
+enum TileType : ubyte {
+  Grass = 0,
+  Dirt,
+  Water,
+  Stone,
+  Sand,
+  Forest,
+  Farm,
+}
+
+enum ActivityKind : ubyte {
+  Idle = 0,
+  Walking,
+  Sleeping,
+  Eating,
+  Working,
+  Crafting,
+  Talking,
+  Socializing,
+}
+
+// Besoins d'un agent, normalisés 0..100.
+struct Needs {
+  energy:float;   // sommeil
+  hunger:float;   // faim (100 = rassasié)
+  social:float;
+  hygiene:float;
+  fun:float;
+}
+
+// --- État du monde ---------------------------------------------------------
+
+table AgentState {
+  id:uint;
+  name:string;
+  pos:Vec2;
+  activity:ActivityKind;
+  needs:Needs;
+  voice_profile:ubyte;   // index du profil vocal (timbre/pitch propre à l'IA)
+  goal:string;           // objectif courant (lisible), fixé par l'orchestrateur LLM
+  saying:string;         // réplique en cours (vide si silencieux)
+}
+
+table ItemState {
+  id:uint;
+  kind:string;
+  pos:Vec2;
+}
+
+table BuildingState {
+  id:uint;
+  kind:string;
+  pos:Vec2;
+}
+
+// Tuiles : envoyées une fois (chunk statique) puis deltas si besoin.
+table TileChunk {
+  width:uint;
+  height:uint;
+  tiles:[ubyte];   // TileType aplati ligne par ligne
+}
+
+table WorldSnapshot {
+  tick:ulong;
+  time_of_day:float;     // 0..24 heures
+  agents:[AgentState];
+  items:[ItemState];
+  buildings:[BuildingState];
+  chunk:TileChunk;       // présent uniquement sur le premier snapshot
+}
+
+// --- Événements serveur -> client -----------------------------------------
+
+table DialogueEvent {
+  speaker_id:uint;
+  listener_id:uint;      // 0 = adressé au monde / au joueur
+  text:string;
+  voice_profile:ubyte;
+}
+
+table AudioEvent {
+  speaker_id:uint;
+  voice_profile:ubyte;
+  sample_rate:uint;
+  pcm:[byte];            // PCM 16 bits mono (chemin Piper, joué en I2S sur ESP32)
+}
+
+// --- Messages client -> serveur --------------------------------------------
+
+table Hello {
+  client_kind:string;    // "web" | "esp32"
+  view_w:uint;
+  view_h:uint;
+}
+
+table ChatToAgent {
+  agent_id:uint;
+  text:string;           // message libre du joueur (ou ordre)
+  is_order:bool;
+}
+
+// --- Enveloppes (unions) ---------------------------------------------------
+
+union ServerPayload { WorldSnapshot, DialogueEvent, AudioEvent }
+
+table ServerMessage {
+  payload:ServerPayload;
+}
+
+union ClientPayload { Hello, ChatToAgent }
+
+table ClientMessage {
+  payload:ClientPayload;
+}
+
+root_type ServerMessage;
