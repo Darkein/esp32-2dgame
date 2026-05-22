@@ -40,8 +40,13 @@ pos(obj?:Vec2):Vec2|null {
   return offset ? (obj || new Vec2()).__init(this.bb_pos + offset, this.bb!) : null;
 }
 
+owner():number {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startBuildingState(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(4);
 }
 
 static addId(builder:flatbuffers.Builder, id:number) {
@@ -54,6 +59,10 @@ static addKind(builder:flatbuffers.Builder, kindOffset:flatbuffers.Offset) {
 
 static addPos(builder:flatbuffers.Builder, posOffset:flatbuffers.Offset) {
   builder.addFieldStruct(2, posOffset, 0);
+}
+
+static addOwner(builder:flatbuffers.Builder, owner:number) {
+  builder.addFieldInt32(3, owner, 0);
 }
 
 static endBuildingState(builder:flatbuffers.Builder):flatbuffers.Offset {

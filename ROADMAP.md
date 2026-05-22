@@ -59,6 +59,9 @@
   changement de tuile (`world.ts`, `sim.snapshot`)
 - [x] **Agriculture** : le champ ne produit que si on **sème une graine** ; cycle visible
   semé → pousse → mûr → récolte (3 stades, nouveaux types de tuiles via `flatc`)
+- [x] **Champs = générateurs créés et possédés** : aucun champ posé d'office ; un **fermier
+  laboure** une parcelle (`world.cultivate`), et seul le **propriétaire** la cultive/récolte
+  (usage exclusif). Maisons/ateliers ont aussi un propriétaire (`BuildingState.owner`)
 - [x] **Graines par battage du blé** ; le blé s'obtient en récoltant un champ mûr
 - [x] Recettes profondes (`catalog.ts`) : planche, farine, pain (four), outil, meuble, brique,
   verre, poterie, graine — le **craft prend du temps**

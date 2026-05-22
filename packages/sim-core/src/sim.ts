@@ -16,6 +16,7 @@ import {
   BUILD_BY_KIND,
   FOOD_SATIETY,
   JOB_PROFILES,
+  MAX_FARMS_PER_AGENT,
   RECIPE_BY_ID,
   STARTING_COINS,
   STARTING_INVENTORY,
@@ -97,8 +98,10 @@ export class Simulation {
         4 + this.rng.int(this.world.width - 8),
         4 + this.rng.int(this.world.height - 8),
       );
-      this.world.addBuilding('maison', home);
-      this.world.addBuilding('atelier', workplace);
+      const id = this.nextId++;
+      // La maison et l'atelier de départ appartiennent à l'agent (usage exclusif).
+      this.world.addBuilding('maison', home, id);
+      this.world.addBuilding('atelier', workplace, id);
 
       const aspirations = [this.rng.pick(ASPIRATIONS), this.rng.pick(ASPIRATIONS)].filter(
         (v, idx, a) => a.indexOf(v) === idx,
@@ -108,7 +111,7 @@ export class Simulation {
 
       const agent: Agent = {
         state: {
-          id: this.nextId++,
+          id,
           name: this.rng.pick(NAMES),
           pos: { ...home },
           activity: 'idle',
@@ -220,29 +223,41 @@ export class Simulation {
     if (plan.type === 'build') return plan.site;
     const station = RECIPE_BY_ID[plan.recipeId]?.station ?? null;
     if (!station) return agent.home;
+    // L'atelier est personnel (usage exclusif) ; le four est un bien partagé du village.
+    if (station === 'atelier') return agent.workplace;
     const b = this.world.findBuilding(station, agent.state.pos);
-    return b ? b.pos : station === 'atelier' ? agent.workplace : null;
+    return b ? b.pos : null;
   }
 
-  /** Tuile à exploiter, orientée par le métier : récolte d'un champ mûr, semis, ou gisement. */
+  /** Tuile à exploiter, orientée par le métier. L'agriculture ne porte que sur les
+   *  champs possédés par l'agent (usage exclusif) ; les fermiers en créent au besoin. */
   private workTarget(agent: Agent): Vec2 | null {
     const pos = agent.state.pos;
+    const id = agent.state.id;
     const has = (k: string) => count(agent.inventory, k);
-    // Un champ mûr à portée se récolte toujours (ne pas gâcher la moisson).
-    const ripe = this.world.findTile(pos, 'champ_mur');
-    if (ripe) return ripe;
-    // Le fermier sème s'il a des graines et un champ libre.
-    if (has('graine') >= 1) {
-      const farm = this.world.findTile(pos, 'farm');
-      if (farm) return farm;
+    const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
+
+    if (profile.farms) {
+      // Récolter son propre champ mûr, sinon semer sur son champ libre.
+      const ripe = this.world.findOwnedFarm(pos, 'champ_mur', id);
+      if (ripe) return ripe;
+      if (has('graine') >= 1) {
+        const empty = this.world.findOwnedFarm(pos, 'farm', id);
+        if (empty) return empty;
+      }
+      // Étendre son exploitation : labourer une nouvelle parcelle proche du domicile.
+      if (this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
+        const spot = this.world.findCultivable(agent.home);
+        if (spot) return spot;
+      }
     }
+
     // Besoin d'eau pour la filière pain : aller au bord de l'eau.
     if (has('farine') >= 1 && has('eau') < 1) {
       const edge = this.world.findWaterEdge(pos);
       if (edge) return edge;
     }
     // Gisement privilégié par le métier, sinon celui dont l'agent manque le plus.
-    const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
     for (const t of profile.gather) {
       const spot = this.world.findTile(pos, t);
       if (spot) return spot;
@@ -258,15 +273,18 @@ export class Simulation {
     return this.world.findTile(pos, wantTile) ?? this.world.findTile(pos, 'forest') ?? agent.workplace;
   }
 
-  /** Travail sur place : récolter un champ mûr, semer, ou exploiter un gisement. */
+  /** Travail sur place : cultiver/semer/récolter son champ, ou exploiter un gisement. */
   private advanceWork(agent: Agent): void {
     if (this.clock.tick < agent.nextGatherTick) return;
     const x = Math.round(agent.state.pos.x);
     const y = Math.round(agent.state.pos.y);
+    const id = agent.state.id;
     const cadence = () => (agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2);
     const tile = this.world.tileAt(x, y);
+    const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
 
-    if (tile === 'champ_mur') {
+    // Récolter / semer uniquement sur ses propres champs.
+    if (tile === 'champ_mur' && this.world.farmOwnerAt(x, y) === id) {
       const ble = this.world.reap(x, y);
       if (ble > 0) {
         add(agent.inventory, 'ble', ble);
@@ -275,10 +293,18 @@ export class Simulation {
       }
       return;
     }
-    if (tile === 'farm' && count(agent.inventory, 'graine') >= 1) {
+    if (tile === 'farm' && this.world.farmOwnerAt(x, y) === id && count(agent.inventory, 'graine') >= 1) {
       if (this.world.plant(x, y, this.clock.tick)) {
         take(agent.inventory, 'graine', 1);
         agent.memory.add(this.clock.tick, 'J\'ai semé un champ', 2);
+        cadence();
+      }
+      return;
+    }
+    // Le fermier laboure une nouvelle parcelle pour créer un champ qui lui appartient.
+    if (profile.farms && (tile === 'grass' || tile === 'dirt') && this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
+      if (this.world.cultivate(x, y, id)) {
+        agent.memory.add(this.clock.tick, 'J\'ai labouré un nouveau champ', 4);
         cadence();
       }
       return;
@@ -303,7 +329,7 @@ export class Simulation {
     const b = BUILD_BY_KIND[intent.buildKind]!;
     if (!pay(agent.inventory, b.inputs)) return null;
     const site = this.pickBuildSite(agent, intent.buildKind);
-    const chantier = this.world.addBuilding('chantier', site);
+    const chantier = this.world.addBuilding('chantier', site, agent.state.id);
     return { type: 'build', kind: intent.buildKind, site, buildingId: chantier.id, progress: 0 };
   }
 
@@ -339,6 +365,7 @@ export class Simulation {
     if (plan.type === 'build') return distance(pos, plan.site) < 1.4;
     const station = RECIPE_BY_ID[plan.recipeId]?.station ?? null;
     if (!station) return true; // craftable n'importe où
+    if (station === 'atelier') return distance(pos, agent.workplace) < 1.6;
     const b = this.world.findBuilding(station, pos);
     return b != null && distance(pos, b.pos) < 1.6;
   }
@@ -376,28 +403,30 @@ export class Simulation {
 
     const inv = agent.inventory;
     const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
-    // On garde quelques unités de tout (matières premières utiles), on vend le reste.
-    const KEEP = 4;
+    // On garde quelques unités de tout, on vend le surplus (réserve de pain plus petite,
+    // pour que le boulanger en mette en vente et nourrisse le village).
     let earned = 0;
     for (const [kind, qty] of [...inv.entries()]) {
-      if (qty <= KEEP || !this.market.tradable(kind)) continue;
-      if (kind === 'pain' || kind === 'ble') continue; // garder la nourriture
-      earned += this.market.sell(inv, kind, qty - KEEP);
+      if (!this.market.tradable(kind)) continue;
+      const keep = kind === 'pain' ? 2 : 4;
+      if (qty <= keep) continue;
+      earned += this.market.sell(inv, kind, qty - keep);
     }
     if (earned > 0) {
       agent.state.coins += earned;
       agent.memory.add(this.clock.tick, `J'ai vendu des biens (+${earned} pièces)`, 3);
     }
 
-    // Achats : nourriture si la faim monte, sinon une matière première utile au métier.
-    if (agent.state.needs.hunger < 50 && count(inv, 'pain') < 1) {
-      const spent = this.market.buy(inv, 'pain', 2, agent.state.coins);
+    // Achats : se nourrir si la faim monte (pain de préférence, sinon blé)…
+    if (agent.state.needs.hunger < 50 && count(inv, 'pain') < 1 && count(inv, 'ble') < 2) {
+      let spent = this.market.buy(inv, 'pain', 1, agent.state.coins);
+      if (spent === 0) spent = this.market.buy(inv, 'ble', 3, agent.state.coins);
       agent.state.coins -= spent;
     }
-    const want = profile.gather.length === 0 ? 'bois' : null;
-    if (want && count(inv, want) < 2) {
-      const spent = this.market.buy(inv, want, 3, agent.state.coins);
-      agent.state.coins -= spent;
+    // …puis acheter les intrants que le métier ne produit pas lui-même.
+    for (const kind of profile.buys) {
+      if (count(inv, kind) >= 2) continue;
+      agent.state.coins -= this.market.buy(inv, kind, 3, agent.state.coins);
     }
   }
 

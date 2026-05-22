@@ -77,6 +77,7 @@ table BuildingState {
   id:uint;
   kind:string;
   pos:Vec2;
+  owner:uint;            // id de l'agent propriétaire (0 = bien public, ex : marché)
 }
 
 // Tuiles : envoyées une fois (chunk statique) puis deltas si besoin.

@@ -24,6 +24,8 @@ export class World {
   private transitions: TileTransition[] = [];
   /** Vrai si des tuiles ont changé depuis le dernier snapshot (renvoi du chunk). */
   private dirty = false;
+  /** Propriétaire d'un champ (cultivé par un agent), par index de tuile. */
+  private readonly farmOwner = new Map<number, number>();
   private nextEntityId = 1000;
 
   constructor(
@@ -102,31 +104,8 @@ export class World {
         if (TILE_STOCK[t] != null) this.stock.set(this.idx(x, y), TILE_STOCK[t]!);
       }
     }
-
-    this.placeFarms(rng);
-  }
-
-  /** Pose des champs labourés groupés (3×3/4×4) sur sol marchable proche du centre. */
-  private placeFarms(rng: Rng): void {
-    const cx = Math.floor(this.width / 2);
-    const cy = Math.floor(this.height / 2);
-    const fieldCount = Math.max(4, Math.round((this.width * this.height) / 500));
-    for (let i = 0; i < fieldCount; i++) {
-      const ox = cx + rng.int(this.width / 2) - this.width / 4;
-      const oy = cy + rng.int(this.height / 2) - this.height / 4;
-      const w = 3 + rng.int(2);
-      const h = 3 + rng.int(2);
-      for (let dy = 0; dy < h; dy++)
-        for (let dx = 0; dx < w; dx++) {
-          const x = Math.round(ox + dx);
-          const y = Math.round(oy + dy);
-          const t = this.tileAt(x, y);
-          if (t === 'grass' || t === 'dirt') {
-            this.set(x, y, 'farm');
-            this.stock.delete(this.idx(x, y));
-          }
-        }
-    }
+    // Aucun champ n'est posé d'office : un champ est un générateur de ressource
+    // créé et possédé par un agent fermier (cf. `cultivate`).
   }
 
   // --- Récolte des gisements + eau ------------------------------------------
@@ -170,7 +149,66 @@ export class World {
     );
   }
 
-  // --- Agriculture : semer → croître → récolter -----------------------------
+  // --- Agriculture : cultiver → semer → croître → récolter ------------------
+
+  /** Laboure une tuile (grass/dirt) en champ possédé par `owner`. Renvoie le succès. */
+  cultivate(x: number, y: number, owner: number): boolean {
+    const t = this.tileAt(x, y);
+    if (t !== 'grass' && t !== 'dirt') return false;
+    const i = this.idx(x, y);
+    this.set(x, y, 'farm');
+    this.stock.delete(i); // un champ n'est pas un gisement
+    this.farmOwner.set(i, owner);
+    this.dirty = true;
+    return true;
+  }
+
+  /** Propriétaire du champ en (x,y), ou 0 si la tuile n'est pas un champ possédé. */
+  farmOwnerAt(x: number, y: number): number {
+    return this.farmOwner.get(this.idx(x, y)) ?? 0;
+  }
+
+  /** Nombre de champs (toutes étapes) appartenant à un agent. */
+  countFarms(owner: number): number {
+    let n = 0;
+    for (const o of this.farmOwner.values()) if (o === owner) n++;
+    return n;
+  }
+
+  /** Champ d'un type donné appartenant à `owner`, le plus proche de `from`. */
+  findOwnedFarm(from: Vec2, type: TileType, owner: number): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestD = Infinity;
+    for (const [i, o] of this.farmOwner) {
+      if (o !== owner || this.tiles[i] !== type) continue;
+      const x = i % this.width;
+      const y = Math.floor(i / this.width);
+      const d = (from.x - x) ** 2 + (from.y - y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = { x, y };
+      }
+    }
+    return best;
+  }
+
+  /** Tuile cultivable (grass/dirt, libre de bâtiment) la plus proche de `from`. */
+  findCultivable(from: Vec2): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestD = Infinity;
+    for (let y = 0; y < this.height; y++)
+      for (let x = 0; x < this.width; x++) {
+        const t = this.tiles[this.idx(x, y)];
+        if (t !== 'grass' && t !== 'dirt') continue;
+        if (this.buildingAt(x, y)) continue;
+        const d = (from.x - x) ** 2 + (from.y - y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = { x, y };
+        }
+      }
+    return best;
+  }
 
   /** Sème une graine sur un champ labouré (x,y). Programme la croissance. */
   plant(x: number, y: number, tick: number): boolean {
@@ -285,8 +323,8 @@ export class World {
     return d;
   }
 
-  addBuilding(kind: string, pos: Vec2): BuildingState {
-    const b: BuildingState = { id: this.nextEntityId++, kind, pos };
+  addBuilding(kind: string, pos: Vec2, owner = 0): BuildingState {
+    const b: BuildingState = { id: this.nextEntityId++, kind, pos, owner };
     this.buildings.push(b);
     return b;
   }

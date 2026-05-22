@@ -94,6 +94,7 @@ function encodeBuilding(b: flatbuffers.Builder, bd: BuildingState): number {
   FbBuildingState.addId(b, bd.id);
   FbBuildingState.addKind(b, kindOff);
   FbBuildingState.addPos(b, FbVec2.createVec2(b, bd.pos.x, bd.pos.y));
+  FbBuildingState.addOwner(b, bd.owner);
   return FbBuildingState.endBuildingState(b);
 }
 
@@ -194,7 +195,7 @@ function decodeSnapshot(ws: FbWorldSnapshot): WorldSnapshot {
   for (let i = 0; i < ws.buildingsLength(); i++) {
     const bd = ws.buildings(i)!;
     const p = bd.pos()!;
-    buildings.push({ id: bd.id(), kind: bd.kind() ?? '', pos: { x: p.x(), y: p.y() } });
+    buildings.push({ id: bd.id(), kind: bd.kind() ?? '', pos: { x: p.x(), y: p.y() }, owner: bd.owner() });
   }
   const snapshot: WorldSnapshot = {
     tick: Number(ws.tick()),

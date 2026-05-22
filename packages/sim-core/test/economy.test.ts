@@ -40,6 +40,18 @@ describe('métiers + économie en jeu', () => {
     for (const a of sim.agents) expect(JOBS).toContain(a.state.job as never);
   });
 
+  it('seuls les fermiers créent et possèdent des champs (usage exclusif)', () => {
+    const sim = new Simulation({ seed: 7, agentCount: 10 });
+    const farmTiles = () =>
+      sim.world.tiles.filter((t) => t === 'farm' || t.startsWith('champ_')).length;
+    expect(farmTiles()).toBe(0); // aucun champ au départ
+    for (let i = 0; i < 12000; i++) sim.tick();
+    expect(farmTiles()).toBeGreaterThan(0); // des champs ont été cultivés
+    for (const a of sim.agents) {
+      if (sim.world.countFarms(a.state.id) > 0) expect(a.state.job).toBe('fermier');
+    }
+  });
+
   it('le commerce génère des pièces et alimente le marché', () => {
     const sim = new Simulation({ seed: 7, agentCount: 10 });
     const initialCoins = sim.agents.reduce((s, a) => s + a.state.coins, 0);

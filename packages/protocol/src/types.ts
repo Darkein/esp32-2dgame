@@ -76,6 +76,8 @@ export interface BuildingState {
   id: number;
   kind: string;
   pos: Vec2;
+  /** Id de l'agent propriétaire (0 = bien public, ex : marché). */
+  owner: number;
 }
 
 export interface TileChunk {

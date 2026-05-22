@@ -100,21 +100,28 @@ export const STARTING_COINS = 20;
 export type Job = 'fermier' | 'bucheron' | 'mineur' | 'artisan' | 'boulanger';
 
 export interface JobProfile {
-  /** Tuiles à exploiter en priorité (récolte/agriculture). */
+  /** Gisements à exploiter en priorité (hors champs, gérés par l'agriculture). */
   gather: TileType[];
+  /** Le métier cultive-t-il ses propres champs (semis/récolte de blé) ? */
+  farms: boolean;
   /** Recettes que le métier privilégie (ordre de préférence). */
   crafts: string[];
   /** Bâtiments que le métier érige volontiers. */
   builds: string[];
+  /** Biens que le métier achète au marché (ce qu'il ne produit pas lui-même). */
+  buys: string[];
 }
 
 export const JOB_PROFILES: Record<Job, JobProfile> = {
-  fermier: { gather: ['champ_mur', 'farm'], crafts: ['graine', 'farine'], builds: ['entrepot'] },
-  bucheron: { gather: ['forest'], crafts: ['planche'], builds: [] },
-  mineur: { gather: ['stone', 'dirt', 'sand'], crafts: [], builds: ['puits'] },
-  artisan: { gather: ['forest', 'stone'], crafts: ['outil', 'meuble', 'poterie', 'planche'], builds: ['atelier', 'maison'] },
-  boulanger: { gather: ['champ_mur'], crafts: ['farine', 'pain'], builds: ['four'] },
+  fermier: { gather: [], farms: true, crafts: ['graine'], builds: ['entrepot'], buys: [] },
+  bucheron: { gather: ['forest'], farms: false, crafts: ['planche'], builds: [], buys: ['pain', 'ble'] },
+  mineur: { gather: ['stone', 'dirt', 'sand'], farms: false, crafts: [], builds: ['puits'], buys: ['pain', 'ble'] },
+  artisan: { gather: ['forest', 'stone'], farms: false, crafts: ['outil', 'meuble', 'poterie', 'planche'], builds: ['atelier', 'maison'], buys: ['pain', 'ble'] },
+  boulanger: { gather: [], farms: false, crafts: ['farine', 'pain'], builds: ['four'], buys: ['ble'] },
 };
+
+/** Nombre maximum de champs qu'un fermier entretient. */
+export const MAX_FARMS_PER_AGENT = 4;
 
 export const JOBS = Object.keys(JOB_PROFILES) as Job[];
 

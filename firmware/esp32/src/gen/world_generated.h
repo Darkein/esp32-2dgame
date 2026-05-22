@@ -663,7 +663,8 @@ struct BuildingState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_ID = 4,
     VT_KIND = 6,
-    VT_POS = 8
+    VT_POS = 8,
+    VT_OWNER = 10
   };
   uint32_t id() const {
     return GetField<uint32_t>(VT_ID, 0);
@@ -674,12 +675,16 @@ struct BuildingState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const game::wire::Vec2 *pos() const {
     return GetStruct<const game::wire::Vec2 *>(VT_POS);
   }
+  uint32_t owner() const {
+    return GetField<uint32_t>(VT_OWNER, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint32_t>(verifier, VT_ID, 4) &&
            VerifyOffset(verifier, VT_KIND) &&
            verifier.VerifyString(kind()) &&
            VerifyField<game::wire::Vec2>(verifier, VT_POS, 4) &&
+           VerifyField<uint32_t>(verifier, VT_OWNER, 4) &&
            verifier.EndTable();
   }
 };
@@ -697,6 +702,9 @@ struct BuildingStateBuilder {
   void add_pos(const game::wire::Vec2 *pos) {
     fbb_.AddStruct(BuildingState::VT_POS, pos);
   }
+  void add_owner(uint32_t owner) {
+    fbb_.AddElement<uint32_t>(BuildingState::VT_OWNER, owner, 0);
+  }
   explicit BuildingStateBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -712,8 +720,10 @@ inline flatbuffers::Offset<BuildingState> CreateBuildingState(
     flatbuffers::FlatBufferBuilder &_fbb,
     uint32_t id = 0,
     flatbuffers::Offset<flatbuffers::String> kind = 0,
-    const game::wire::Vec2 *pos = nullptr) {
+    const game::wire::Vec2 *pos = nullptr,
+    uint32_t owner = 0) {
   BuildingStateBuilder builder_(_fbb);
+  builder_.add_owner(owner);
   builder_.add_pos(pos);
   builder_.add_kind(kind);
   builder_.add_id(id);
@@ -724,13 +734,15 @@ inline flatbuffers::Offset<BuildingState> CreateBuildingStateDirect(
     flatbuffers::FlatBufferBuilder &_fbb,
     uint32_t id = 0,
     const char *kind = nullptr,
-    const game::wire::Vec2 *pos = nullptr) {
+    const game::wire::Vec2 *pos = nullptr,
+    uint32_t owner = 0) {
   auto kind__ = kind ? _fbb.CreateString(kind) : 0;
   return game::wire::CreateBuildingState(
       _fbb,
       id,
       kind__,
-      pos);
+      pos,
+      owner);
 }
 
 struct TileChunk FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
