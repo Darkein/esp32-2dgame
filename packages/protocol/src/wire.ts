@@ -32,13 +32,19 @@ import type {
 // Tables d'enums (ordre identique au schéma .fbs).
 const TILE_TO_FB: Record<TileType, number> = {
   grass: 0, dirt: 1, water: 2, stone: 3, sand: 4, forest: 5, farm: 6,
+  champ_seme: 7, champ_pousse: 8, champ_mur: 9,
 };
-const TILE_FROM_FB: TileType[] = ['grass', 'dirt', 'water', 'stone', 'sand', 'forest', 'farm'];
+const TILE_FROM_FB: TileType[] = [
+  'grass', 'dirt', 'water', 'stone', 'sand', 'forest', 'farm',
+  'champ_seme', 'champ_pousse', 'champ_mur',
+];
 const ACT_TO_FB: Record<ActivityKind, number> = {
   idle: 0, walking: 1, sleeping: 2, eating: 3, working: 4, crafting: 5, talking: 6, socializing: 7,
+  trading: 8,
 };
 const ACT_FROM_FB: ActivityKind[] = [
   'idle', 'walking', 'sleeping', 'eating', 'working', 'crafting', 'talking', 'socializing',
+  'trading',
 ];
 
 // --- Encodage --------------------------------------------------------------
@@ -47,6 +53,7 @@ function encodeAgent(b: flatbuffers.Builder, a: AgentState): number {
   const nameOff = b.createString(a.name);
   const goalOff = b.createString(a.goal);
   const sayOff = b.createString(a.saying);
+  const jobOff = b.createString(a.job);
   const stackOffsets = a.inventory.map((st) => {
     const kindOff = b.createString(st.kind);
     return FbItemStack.createItemStack(b, kindOff, st.count);
@@ -67,6 +74,8 @@ function encodeAgent(b: flatbuffers.Builder, a: AgentState): number {
   FbAgentState.addSaying(b, sayOff);
   FbAgentState.addInventory(b, invVec);
   FbAgentState.addHouses(b, a.houses);
+  FbAgentState.addJob(b, jobOff);
+  FbAgentState.addCoins(b, a.coins);
   return FbAgentState.endAgentState(b);
 }
 
@@ -85,6 +94,7 @@ function encodeBuilding(b: flatbuffers.Builder, bd: BuildingState): number {
   FbBuildingState.addId(b, bd.id);
   FbBuildingState.addKind(b, kindOff);
   FbBuildingState.addPos(b, FbVec2.createVec2(b, bd.pos.x, bd.pos.y));
+  FbBuildingState.addOwner(b, bd.owner);
   return FbBuildingState.endBuildingState(b);
 }
 
@@ -167,6 +177,8 @@ function decodeAgent(a: FbAgentState): AgentState {
     saying: a.saying() ?? '',
     inventory,
     houses: a.houses(),
+    job: a.job() ?? '',
+    coins: a.coins(),
   };
 }
 
@@ -183,7 +195,7 @@ function decodeSnapshot(ws: FbWorldSnapshot): WorldSnapshot {
   for (let i = 0; i < ws.buildingsLength(); i++) {
     const bd = ws.buildings(i)!;
     const p = bd.pos()!;
-    buildings.push({ id: bd.id(), kind: bd.kind() ?? '', pos: { x: p.x(), y: p.y() } });
+    buildings.push({ id: bd.id(), kind: bd.kind() ?? '', pos: { x: p.x(), y: p.y() }, owner: bd.owner() });
   }
   const snapshot: WorldSnapshot = {
     tick: Number(ws.tick()),

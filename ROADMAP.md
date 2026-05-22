@@ -50,12 +50,32 @@
 - [ ] Lecture **multi-canaux** réellement simultanée côté client
 - [ ] STT **whisper.cpp** (entrée vocale du joueur)
 
-## ✅ Phase 7 — Profondeur gameplay  *(socle)*
-- [x] Inventaire par agent + ressources récoltables (bois/forêt, pierre, blé/champ)
-- [x] Récolte ciblée : l'IA va chercher la ressource qui lui manque (`utility.ts`)
-- [x] Recettes (`crafting.ts`) : planche, pain, outil ; cuisson du pain mangée pour la faim
-- [x] Construction de maisons (coût matériaux) → `AgentState.houses`, affiché au HUD
-- [ ] Métiers spécialisés, échanges/économie entre IA, placement libre de bâtiments
+## ✅ Phase 7 — Profondeur gameplay
+- [x] Génération **par biomes** (bruit élévation/humidité) : eau, rivages, forêts, montagnes,
+  plaines + champs groupés (`world.ts`)
+- [x] Inventaire par agent + **ressources brutes variées** : bois (forêt), pierre, argile (terre),
+  sable, eau (puisée au bord de l'eau) — catalogue data-driven (`catalog.ts`)
+- [x] **Gisements épuisables puis repousse** (forêt/pierre/argile/sable) ; renvoi du chunk au
+  changement de tuile (`world.ts`, `sim.snapshot`)
+- [x] **Agriculture** : le champ ne produit que si on **sème une graine** ; cycle visible
+  semé → pousse → mûr → récolte (3 stades, nouveaux types de tuiles via `flatc`)
+- [x] **Champs = générateurs créés et possédés** : aucun champ posé d'office ; un **fermier
+  laboure** une parcelle (`world.cultivate`), et seul le **propriétaire** la cultive/récolte
+  (usage exclusif). Maisons/ateliers ont aussi un propriétaire (`BuildingState.owner`)
+- [x] **Graines par battage du blé** ; le blé s'obtient en récoltant un champ mûr
+- [x] Recettes profondes (`catalog.ts`) : planche, farine, pain (four), outil, meuble, brique,
+  verre, poterie, graine — le **craft prend du temps**
+- [x] **Plans pilotés par besoin/aspiration** (`ai/planner.ts`) : faim → filière pain,
+  aspirations → maison/outil/meuble/ferme
+- [x] **Construction = vrai bâtiment** (maison, four, atelier, puits, entrepôt) : chantier
+  visible → bâtiment fini (`sim.advancePlan`)
+- [x] **Rendu des bâtiments** (formes iso) + couleurs des cultures (`renderer.ts`)
+- [x] **Métiers spécialisés** (fermier, bûcheron, mineur, artisan, boulanger) déduits de la
+  personnalité/aspiration, orientant récolte/craft/construction (`catalog.ts`, `entities.ts`)
+- [x] **Économie monétaire** : marché central à prix dynamiques (offre/demande), les IA vendent
+  leurs surplus et achètent ce qui leur manque (`market.ts`, activité `trading`)
+- [x] **Placement intelligent** des bâtiments par les IA (puits près de l'eau, four/atelier/
+  entrepôt autour du marché, maison près du domicile) (`sim.pickBuildSite`)
 
 ## ⬜ Phase 8 — Client ESP32-S3 Touch
 - [ ] Projet PlatformIO (LovyanGFX/LVGL), rendu tuiles + UI tactile

@@ -1,30 +1,11 @@
-import type { TileType } from '@game/protocol';
+import { RECIPES, TILE_RESOURCE, type Recipe } from './catalog';
 
-export type Resource = 'bois' | 'pierre' | 'ble';
-export type Good = 'planche' | 'pain' | 'outil';
+// Recettes réexportées depuis le catalogue (point d'entrée historique).
+export { RECIPES, type Recipe };
 
-export interface Recipe {
-  id: Good;
-  inputs: Partial<Record<string, number>>;
-  /** Atelier requis ? (sinon craftable n'importe où). */
-  needsWorkshop: boolean;
-}
-
-export const RECIPES: Recipe[] = [
-  { id: 'planche', inputs: { bois: 2 }, needsWorkshop: false },
-  { id: 'pain', inputs: { ble: 2 }, needsWorkshop: false },
-  { id: 'outil', inputs: { bois: 1, pierre: 1 }, needsWorkshop: true },
-];
-
-/** Coût d'une maison (consommé lors de la construction). */
-export const HOUSE_COST: Record<string, number> = { planche: 4, pierre: 2 };
-
-/** Ressource récoltable sur une tuile, le cas échéant. */
-export function tileResource(tile: TileType): Resource | null {
-  if (tile === 'forest') return 'bois';
-  if (tile === 'stone') return 'pierre';
-  if (tile === 'farm') return 'ble';
-  return null;
+/** Ressource récoltable directement sur une tuile, le cas échéant (cf. catalogue). */
+export function tileResource(tile: string): string | null {
+  return TILE_RESOURCE[tile as keyof typeof TILE_RESOURCE] ?? null;
 }
 
 export type Inventory = Map<string, number>;
@@ -54,11 +35,12 @@ export function pay(inv: Inventory, cost: Record<string, number>): boolean {
   return true;
 }
 
-/** Première recette réalisable (matériaux suffisants), en respectant l'atelier. */
-export function craftable(inv: Inventory, atWorkshop: boolean): Recipe | null {
+/** Première recette réalisable (matériaux suffisants) compte tenu des postes disponibles. */
+export function craftable(inv: Inventory, stations: Iterable<string> = []): Recipe | null {
+  const avail = new Set(stations);
   for (const r of RECIPES) {
-    if (r.needsWorkshop && !atWorkshop) continue;
-    if (canAfford(inv, r.inputs as Record<string, number>)) return r;
+    if (r.station && !avail.has(r.station)) continue;
+    if (canAfford(inv, r.inputs)) return r;
   }
   return null;
 }

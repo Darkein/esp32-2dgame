@@ -25,10 +25,12 @@ const snapshot: WorldSnapshot = {
         { kind: 'planche', count: 2 },
       ],
       houses: 1,
+      job: 'bucheron',
+      coins: 42,
     },
   ],
   items: [{ id: 1000, kind: 'pomme', pos: { x: 1, y: 2 } }],
-  buildings: [{ id: 1001, kind: 'maison', pos: { x: 4, y: 5 } }],
+  buildings: [{ id: 1001, kind: 'maison', pos: { x: 4, y: 5 }, owner: 1 }],
   chunk: { width: 3, height: 2, tiles: ['grass', 'water', 'forest', 'farm', 'stone', 'sand'] },
 };
 
@@ -50,8 +52,10 @@ describe('protocole binaire FlatBuffers', () => {
       { kind: 'planche', count: 2 },
     ]);
     expect(a.houses).toBe(1);
+    expect(a.job).toBe('bucheron');
+    expect(a.coins).toBe(42);
     expect(s.items[0]).toMatchObject({ id: 1000, kind: 'pomme' });
-    expect(s.buildings[0]).toMatchObject({ id: 1001, kind: 'maison' });
+    expect(s.buildings[0]).toMatchObject({ id: 1001, kind: 'maison', owner: 1 });
     expect(s.chunk?.tiles).toEqual(['grass', 'water', 'forest', 'farm', 'stone', 'sand']);
   });
 

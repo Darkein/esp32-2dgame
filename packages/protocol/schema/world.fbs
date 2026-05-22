@@ -18,7 +18,10 @@ enum TileType : ubyte {
   Stone,
   Sand,
   Forest,
-  Farm,
+  Farm,          // champ labouré, vide (plantable)
+  ChampSeme,     // champ semé (graine en terre)
+  ChampPousse,   // jeune pousse
+  ChampMur,      // prêt à récolter
 }
 
 enum ActivityKind : ubyte {
@@ -30,6 +33,7 @@ enum ActivityKind : ubyte {
   Crafting,
   Talking,
   Socializing,
+  Trading,        // vente/achat au marché du village
 }
 
 // Besoins d'un agent, normalisés 0..100.
@@ -58,7 +62,9 @@ table AgentState {
   goal:string;           // objectif courant (lisible), fixé par l'orchestrateur LLM
   saying:string;         // réplique en cours (vide si silencieux)
   inventory:[ItemStack]; // ressources brutes + objets craftés
-  houses:uint;           // maisons construites (aspiration logement)
+  houses:uint;           // bâtiments construits (aspiration logement)
+  job:string;            // métier (fermier, bucheron, mineur, artisan, boulanger…)
+  coins:uint;            // monnaie détenue (économie de marché)
 }
 
 table ItemState {
@@ -71,6 +77,7 @@ table BuildingState {
   id:uint;
   kind:string;
   pos:Vec2;
+  owner:uint;            // id de l'agent propriétaire (0 = bien public, ex : marché)
 }
 
 // Tuiles : envoyées une fois (chunk statique) puis deltas si besoin.

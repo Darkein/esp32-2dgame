@@ -1,5 +1,12 @@
 import type { ActivityKind, AgentState, Needs, Vec2 } from '@game/protocol';
+import type { Job } from './catalog';
 import type { MemoryStream } from './ai/memory';
+
+/** Projet en cours d'un agent (fabrication ou construction). Le travail agricole
+ *  (semer/récolter) et la récolte des gisements sont gérés dans l'activité `working`. */
+export type ActivePlan =
+  | { type: 'craft'; recipeId: string; progress: number }
+  | { type: 'build'; kind: string; site: Vec2; buildingId: number; progress: number };
 
 /** Traits de personnalité (Big Five + entrain), 0..1. Biaisent les choix d'action. */
 export interface Personality {
@@ -35,10 +42,24 @@ export interface Agent {
   sayingUntilTick: number;
   /** Ressources brutes + objets craftés portés. */
   inventory: Map<string, number>;
-  /** Maisons construites. */
+  /** Bâtiments construits par l'agent. */
   houses: number;
   /** Prochain tick autorisé pour une action de récolte/craft (cadence). */
   nextGatherTick: number;
+  /** Projet courant (craft/construction/agriculture), null si aucun. */
+  plan: ActivePlan | null;
+}
+
+/** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */
+export function assignJob(aspirations: string[], p: Personality): Job {
+  const a = aspirations.join(' ');
+  if (a.includes('fermier')) return 'fermier';
+  if (a.includes('crafting') || a.includes('richesse')) return 'artisan';
+  if (p.industriousness > 0.6 && p.conscientiousness > 0.5) return 'bucheron';
+  if (p.openness > 0.6) return 'boulanger';
+  if (p.conscientiousness > 0.55) return 'mineur';
+  const r = (p.openness + p.industriousness + p.conscientiousness) / 3;
+  return r < 0.34 ? 'mineur' : r < 0.67 ? 'bucheron' : 'boulanger';
 }
 
 export function makeNeeds(partial?: Partial<Needs>): Needs {

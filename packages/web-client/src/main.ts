@@ -17,6 +17,7 @@ const NEED_LABEL: Record<NeedKey, string> = {
 const ACTIVITY_LABEL: Record<string, string> = {
   idle: 'oisif', walking: 'marche', sleeping: 'dort', eating: 'mange',
   working: 'travaille', crafting: 'bricole', talking: 'discute', socializing: 'socialise',
+  trading: 'au marché',
 };
 
 async function main() {
@@ -50,11 +51,11 @@ async function main() {
   }
 
   function refreshPanel(a: AgentState) {
-    $('pname').textContent = a.name;
+    $('pname').textContent = a.job ? `${a.name} — ${a.job}` : a.name;
     $('pactivity').textContent = `Activité : ${ACTIVITY_LABEL[a.activity] ?? a.activity}`;
     $('goal').textContent = a.goal ? `« ${a.goal} »` : '';
     const inv = a.inventory.map((s) => `${s.kind}×${s.count}`).join(', ');
-    $('inv').textContent = `🎒 ${inv || 'vide'}${a.houses ? `  •  🏠 ${a.houses}` : ''}`;
+    $('inv').textContent = `🎒 ${inv || 'vide'}  •  💰 ${a.coins}${a.houses ? `  •  🏠 ${a.houses}` : ''}`;
     for (const key of NEED_KEYS) {
       const bar = bars.get(key)!;
       const v = Math.round(a.needs[key]);
