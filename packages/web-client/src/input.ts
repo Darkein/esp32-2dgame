@@ -32,8 +32,18 @@ export function attachCameraControls(canvas: HTMLCanvasElement, camera: Containe
     (e) => {
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      const next = Math.min(3, Math.max(0.4, camera.scale.x * factor));
+      const prev = camera.scale.x;
+      const next = Math.min(3, Math.max(0.4, prev * factor));
+      if (next === prev) return;
+      // Garde le point du monde sous le curseur fixe pendant le zoom.
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const worldX = (px - camera.x) / prev;
+      const worldY = (py - camera.y) / prev;
       camera.scale.set(next);
+      camera.x = px - worldX * next;
+      camera.y = py - worldY * next;
     },
     { passive: false },
   );
