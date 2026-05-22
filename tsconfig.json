@@ -9,5 +9,5 @@
     "packages/*/test/**/*.ts",
     "vitest.config.ts"
   ],
-  "exclude": ["packages/protocol/src/gen/**", "**/dist/**"]
+  "exclude": ["**/dist/**"]
 }

@@ -64,5 +64,8 @@
 - [ ] Optimisations RAM/PSRAM, zone visible réduite
 
 ## Dette / migrations
-- [ ] Passer le transport WebSocket au **binaire FlatBuffers** (au lieu de JSON) — clé pour l'ESP32
+- [x] Passer le transport WebSocket au **binaire FlatBuffers** (au lieu de JSON) — clé pour l'ESP32
+  → `packages/protocol/src/wire.ts` (encode/decode), branché serveur + `WebSocketTransport`.
+  Worker inchangé. Round-trips testés (`protocol/test/wire.test.ts`). Interop C++/ESP32 réelle
+  reste à valider en phase 8 (pas de carte ici).
 - [ ] Déploiement d'un serveur hébergé (pour LLM/voix accessibles depuis le web sans poste local)

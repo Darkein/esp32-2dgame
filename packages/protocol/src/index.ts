@@ -1,4 +1,10 @@
 export * from './types';
+export {
+  encodeServerMessage,
+  decodeServerMessage,
+  encodeClientMessage,
+  decodeClientMessage,
+} from './wire';
 
 /** Profils vocaux disponibles (timbre/pitch/débit). Voir VoiceBackend côté client. */
 export const VOICE_PROFILES = [

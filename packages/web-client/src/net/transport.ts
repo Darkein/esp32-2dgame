@@ -1,4 +1,5 @@
 import type { ClientMessage, ServerMessage, WorldSnapshot, DialogueEvent } from '@game/protocol';
+import { decodeServerMessage, encodeClientMessage } from '@game/protocol';
 
 export interface Transport {
   onSnapshot(cb: (s: WorldSnapshot) => void): void;
@@ -44,7 +45,7 @@ export class WorkerTransport extends BaseTransport {
   }
 }
 
-/** Serveur distant (vrai MMO, chemin ESP32). */
+/** Serveur distant (vrai MMO, chemin ESP32). Protocole binaire FlatBuffers. */
 export class WebSocketTransport extends BaseTransport {
   readonly label: string;
   private ws?: WebSocket;
@@ -54,11 +55,19 @@ export class WebSocketTransport extends BaseTransport {
   }
   start(): void {
     this.ws = new WebSocket(this.url);
-    this.ws.onmessage = (ev) => this.dispatch(JSON.parse(ev.data as string) as ServerMessage);
+    this.ws.binaryType = 'arraybuffer';
+    this.ws.onopen = () => {
+      const hello: ClientMessage = { t: 'hello', clientKind: 'web', viewW: innerWidth, viewH: innerHeight };
+      this.ws?.send(encodeClientMessage(hello));
+    };
+    this.ws.onmessage = (ev) => {
+      const msg = decodeServerMessage(new Uint8Array(ev.data as ArrayBuffer));
+      if (msg) this.dispatch(msg);
+    };
   }
   sendChat(agentId: number, text: string, isOrder: boolean): void {
-    const msg: ClientMessage = { t: 'chat', agentId, text, isOrder };
-    this.ws?.send(JSON.stringify(msg));
+    if (!this.ws) return;
+    this.ws.send(encodeClientMessage({ t: 'chat', agentId, text, isOrder }));
   }
 }
 

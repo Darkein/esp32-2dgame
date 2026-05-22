@@ -1,7 +1,14 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer, WebSocket, type RawData } from 'ws';
 import { Simulation } from '@game/sim-core';
 import { resolveProvider } from '@game/llm';
-import type { ClientMessage, ServerMessage } from '@game/protocol';
+import { decodeClientMessage, encodeServerMessage, type ServerMessage } from '@game/protocol';
+
+/** Normalise la donnée WS entrante en Uint8Array (les trames sont binaires). */
+function toBytes(raw: RawData): Uint8Array {
+  if (Buffer.isBuffer(raw)) return new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
+  if (raw instanceof ArrayBuffer) return new Uint8Array(raw);
+  return new Uint8Array(Buffer.concat(raw as Buffer[]));
+}
 
 const PORT = Number(process.env.PORT ?? 8787);
 const TPS = Number(process.env.TPS ?? 15);
@@ -21,7 +28,7 @@ async function main() {
   console.log(`[serveur] WebSocket sur ws://localhost:${PORT}`);
 
   const send = (ws: WebSocket, msg: ServerMessage) => {
-    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+    if (ws.readyState === ws.OPEN) ws.send(encodeServerMessage(msg));
   };
   const broadcast = (msg: ServerMessage) => {
     for (const ws of wss.clients) send(ws, msg);
@@ -31,8 +38,8 @@ async function main() {
     send(ws, { t: 'snapshot', snapshot: sim.snapshot(true) });
     ws.on('message', (raw) => {
       try {
-        const msg = JSON.parse(String(raw)) as ClientMessage;
-        if (msg.t === 'chat') sim.handleChat(msg.agentId, msg.text, msg.isOrder);
+        const msg = decodeClientMessage(toBytes(raw));
+        if (msg?.t === 'chat') sim.handleChat(msg.agentId, msg.text, msg.isOrder);
       } catch {
         /* message invalide ignoré */
       }
