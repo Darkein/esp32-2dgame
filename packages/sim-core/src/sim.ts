@@ -192,9 +192,8 @@ export class Simulation {
     const agent = this.agents.find((a) => a.state.id === agentId);
     if (!agent) return;
     agent.memory.add(this.clock.tick, `Le joueur m'a ${isOrder ? 'ordonné' : 'dit'}: ${text}`, 6);
-    // Phase 5 : l'orchestrateur évaluera l'ordre selon la personnalité. Pour l'instant,
-    // on déclenche une réflexion immédiate qui prendra en compte le nouveau souvenir.
-    agent.nextThinkTick = this.clock.tick;
+    // L'IA décide elle-même d'obéir ou non (cf. Orchestrator.respondToPlayer).
+    this.orchestrator.respondToPlayer(agent, text, isOrder, this.clock);
   }
 
   snapshot(includeChunk = false): WorldSnapshot {

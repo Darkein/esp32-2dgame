@@ -35,10 +35,14 @@
 - [ ] Embeddings pour la pertinence sémantique du retrieval (amélioration)
 - [ ] Réflexions périodiques (synthèse de souvenirs en croyances)
 
-## ⬜ Phase 5 — Interaction utilisateur (texte)  *(amorcée : `Simulation.handleChat`)*
+## ✅ Phase 5 — Interaction utilisateur (texte)
 - [x] UI chat ciblant une IA + envoi d'ordres
-- [ ] Évaluation des ordres par l'orchestrateur (accepte/refuse selon personnalité/relation)
-- [ ] Réponse conversationnelle dédiée au joueur (canal séparé des dialogues IA↔IA)
+- [x] Évaluation des ordres par l'orchestrateur (accepte/refuse selon personnalité + besoins)
+  → `Orchestrator.respondToPlayer` (chemin LLM + repli déterministe hors-ligne)
+- [x] Réponse conversationnelle au joueur (`DialogueEvent.listenerId = 0`), questions sur les
+  aspirations/humeur, ordre accepté = biais d'action immédiat
+- [ ] Mémoire de la relation joueur↔IA dans la durée (affinité persistante)
+- [ ] STT pour donner les ordres à la voix (dépend de la Phase 6)
 
 ## ⬜ Phase 6 — Voix : par-IA + simultanée (TTS + STT)
 - [x] Profils vocaux + Web Speech (démo navigateur, voix FR distinctes)

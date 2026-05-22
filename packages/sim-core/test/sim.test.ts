@@ -63,4 +63,31 @@ describe('Simulation', () => {
     const perAgent = (performance.now() - t0) / 16;
     expect(perAgent).toBeLessThan(500);
   });
+
+  it('répond au joueur (dialogue adressé au joueur)', () => {
+    const sim = new Simulation({ seed: 3, agentCount: 4 });
+    const id = sim.agents[0]!.state.id;
+    sim.handleChat(id, 'Quelles sont tes aspirations ?', false);
+    let dialogues = sim.tick();
+    for (let i = 0; i < 3 && dialogues.length === 0; i++) dialogues = sim.tick();
+    const toPlayer = dialogues.find((d) => d.listenerId === 0 && d.speakerId === id);
+    expect(toPlayer?.text.length).toBeGreaterThan(0);
+  });
+
+  it('un ordre est accepté ou refusé selon la personnalité', () => {
+    const sim = new Simulation({ seed: 5, agentCount: 4 });
+    const docile = sim.agents[0]!;
+    docile.personality.agreeableness = 1;
+    docile.personality.conscientiousness = 1;
+    docile.state.needs.energy = 90;
+    sim.handleChat(docile.state.id, 'Va travailler !', true);
+    expect(docile.state.goal).toContain('obéir');
+
+    const rebelle = sim.agents[1]!;
+    rebelle.personality.agreeableness = 0;
+    rebelle.personality.conscientiousness = 0;
+    const goalBefore = rebelle.state.goal;
+    sim.handleChat(rebelle.state.id, 'Va travailler !', true);
+    expect(rebelle.state.goal).toBe(goalBefore);
+  });
 });
