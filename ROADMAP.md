@@ -73,7 +73,6 @@
   leurs surplus et achètent ce qui leur manque (`market.ts`, activité `trading`)
 - [x] **Placement intelligent** des bâtiments par les IA (puits près de l'eau, four/atelier/
   entrepôt autour du marché, maison près du domicile) (`sim.pickBuildSite`)
-- [ ] Échanges directs IA↔IA (troc) et placement manuel par le joueur
 
 ## ⬜ Phase 8 — Client ESP32-S3 Touch
 - [ ] Projet PlatformIO (LovyanGFX/LVGL), rendu tuiles + UI tactile
