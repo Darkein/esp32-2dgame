@@ -1,5 +1,5 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
-import type { TileType, WorldSnapshot, AgentState, Vec2 } from '@game/protocol';
+import type { TileType, WorldSnapshot, AgentState, BuildingState, Vec2 } from '@game/protocol';
 
 const TILE_W = 64;
 const TILE_H = 32;
@@ -11,7 +11,20 @@ const TILE_COLOR: Record<TileType, number> = {
   stone: 0x8d8d8d,
   sand: 0xd9c27a,
   forest: 0x2f7a3a,
-  farm: 0xc9a227,
+  farm: 0x8a6a3f, // champ labouré (terre nue)
+  champ_seme: 0xa07a4a, // semé (terre + germes)
+  champ_pousse: 0x8fd14f, // jeune pousse
+  champ_mur: 0xe3c34a, // épis dorés, prêt à récolter
+};
+
+// Couleurs des bâtiments : { toit, mur }. Le chantier est translucide.
+const BUILDING_COLOR: Record<string, { roof: number; wall: number; alpha?: number }> = {
+  maison: { roof: 0xb5462f, wall: 0xcaa472 },
+  atelier: { roof: 0x6d4c91, wall: 0x9a8c7a },
+  four: { roof: 0x7a3b2e, wall: 0x8d8d8d },
+  entrepot: { roof: 0x4a6d8c, wall: 0xb0a080 },
+  puits: { roof: 0x6f7d86, wall: 0x8d8d8d },
+  chantier: { roof: 0xe8e0a0, wall: 0xc8b870, alpha: 0.5 },
 };
 
 function isoToScreen(x: number, y: number): Vec2 {
@@ -31,9 +44,11 @@ export class Renderer {
   readonly app = new Application();
   private world = new Container();
   private tileLayer = new Graphics();
+  private buildingLayer = new Container();
   private agentLayer = new Container();
   private night = new Graphics();
   private views = new Map<number, AgentView>();
+  private buildingViews = new Map<number, { container: Container; kind: string }>();
   private latest: WorldSnapshot | null = null;
   onSelect: (agent: AgentState) => void = () => {};
 
@@ -41,6 +56,7 @@ export class Renderer {
     await this.app.init({ background: 0x1a1f2b, resizeTo: window, antialias: true });
     host.appendChild(this.app.canvas);
     this.world.addChild(this.tileLayer);
+    this.world.addChild(this.buildingLayer);
     this.world.addChild(this.agentLayer);
     this.app.stage.addChild(this.world);
     this.app.stage.addChild(this.night);
@@ -61,8 +77,34 @@ export class Renderer {
   apply(snapshot: WorldSnapshot): void {
     this.latest = snapshot;
     if (snapshot.chunk) this.drawTiles(snapshot.chunk.width, snapshot.chunk.height, snapshot.chunk.tiles);
+    this.syncBuildings(snapshot.buildings);
     this.syncAgents(snapshot.agents);
     this.updateNight(snapshot.timeOfDay);
+  }
+
+  private syncBuildings(buildings: BuildingState[]): void {
+    const seen = new Set<number>();
+    for (const b of buildings) {
+      seen.add(b.id);
+      let v = this.buildingViews.get(b.id);
+      if (!v || v.kind !== b.kind) {
+        v?.container.destroy({ children: true });
+        const container = drawBuilding(b.kind);
+        const s = isoToScreen(b.pos.x, b.pos.y);
+        container.x = s.x;
+        container.y = s.y;
+        container.zIndex = s.y;
+        this.buildingLayer.addChild(container);
+        v = { container, kind: b.kind };
+        this.buildingViews.set(b.id, v);
+      }
+    }
+    for (const [id, v] of this.buildingViews)
+      if (!seen.has(id)) {
+        v.container.destroy({ children: true });
+        this.buildingViews.delete(id);
+      }
+    this.buildingLayer.sortableChildren = true;
   }
 
   private drawTiles(w: number, h: number, tiles: TileType[]): void {
@@ -153,6 +195,29 @@ export class Renderer {
     }
     if (best) this.onSelect(best);
   }
+}
+
+/** Dessine un bâtiment isométrique simple (deux faces + toit) selon son type. */
+function drawBuilding(kind: string): Container {
+  const c = new Container();
+  const g = new Graphics();
+  const col = BUILDING_COLOR[kind] ?? { roof: 0xcccccc, wall: 0x999999 };
+  const alpha = col.alpha ?? 1;
+  const H = kind === 'chantier' ? 8 : kind === 'puits' ? 12 : 24;
+  const hw = (TILE_W / 2) * 0.62;
+  const hh = (TILE_H / 2) * 0.62;
+  const dark = (hex: number) => {
+    const r = ((hex >> 16) & 0xff) * 0.75;
+    const gr = ((hex >> 8) & 0xff) * 0.75;
+    const b = (hex & 0xff) * 0.75;
+    return (r << 16) | (gr << 8) | b;
+  };
+  // Face gauche puis droite (murs), puis le toit en losange surélevé.
+  g.poly([-hw, 0, 0, hh, 0, hh - H, -hw, -H]).fill({ color: dark(col.wall), alpha });
+  g.poly([hw, 0, 0, hh, 0, hh - H, hw, -H]).fill({ color: col.wall, alpha });
+  g.poly([0, -H - hh, hw, -H, 0, -H + hh, -hw, -H]).fill({ color: col.roof, alpha });
+  c.addChild(g);
+  return c;
 }
 
 function agentColor(id: number): number {

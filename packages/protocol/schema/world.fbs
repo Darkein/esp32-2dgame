@@ -18,7 +18,10 @@ enum TileType : ubyte {
   Stone,
   Sand,
   Forest,
-  Farm,
+  Farm,          // champ labouré, vide (plantable)
+  ChampSeme,     // champ semé (graine en terre)
+  ChampPousse,   // jeune pousse
+  ChampMur,      // prêt à récolter
 }
 
 enum ActivityKind : ubyte {

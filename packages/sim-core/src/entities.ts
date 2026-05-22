@@ -1,6 +1,12 @@
 import type { ActivityKind, AgentState, Needs, Vec2 } from '@game/protocol';
 import type { MemoryStream } from './ai/memory';
 
+/** Projet en cours d'un agent (fabrication ou construction). Le travail agricole
+ *  (semer/récolter) et la récolte des gisements sont gérés dans l'activité `working`. */
+export type ActivePlan =
+  | { type: 'craft'; recipeId: string; progress: number }
+  | { type: 'build'; kind: string; site: Vec2; buildingId: number; progress: number };
+
 /** Traits de personnalité (Big Five + entrain), 0..1. Biaisent les choix d'action. */
 export interface Personality {
   openness: number;
@@ -35,10 +41,12 @@ export interface Agent {
   sayingUntilTick: number;
   /** Ressources brutes + objets craftés portés. */
   inventory: Map<string, number>;
-  /** Maisons construites. */
+  /** Bâtiments construits par l'agent. */
   houses: number;
   /** Prochain tick autorisé pour une action de récolte/craft (cadence). */
   nextGatherTick: number;
+  /** Projet courant (craft/construction/agriculture), null si aucun. */
+  plan: ActivePlan | null;
 }
 
 export function makeNeeds(partial?: Partial<Needs>): Needs {

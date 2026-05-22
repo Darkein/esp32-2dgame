@@ -64,11 +64,14 @@ enum TileType : uint8_t {
   TileType_Sand = 4,
   TileType_Forest = 5,
   TileType_Farm = 6,
+  TileType_ChampSeme = 7,
+  TileType_ChampPousse = 8,
+  TileType_ChampMur = 9,
   TileType_MIN = TileType_Grass,
-  TileType_MAX = TileType_Farm
+  TileType_MAX = TileType_ChampMur
 };
 
-inline const TileType (&EnumValuesTileType())[7] {
+inline const TileType (&EnumValuesTileType())[10] {
   static const TileType values[] = {
     TileType_Grass,
     TileType_Dirt,
@@ -76,13 +79,16 @@ inline const TileType (&EnumValuesTileType())[7] {
     TileType_Stone,
     TileType_Sand,
     TileType_Forest,
-    TileType_Farm
+    TileType_Farm,
+    TileType_ChampSeme,
+    TileType_ChampPousse,
+    TileType_ChampMur
   };
   return values;
 }
 
 inline const char * const *EnumNamesTileType() {
-  static const char * const names[8] = {
+  static const char * const names[11] = {
     "Grass",
     "Dirt",
     "Water",
@@ -90,13 +96,16 @@ inline const char * const *EnumNamesTileType() {
     "Sand",
     "Forest",
     "Farm",
+    "ChampSeme",
+    "ChampPousse",
+    "ChampMur",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameTileType(TileType e) {
-  if (flatbuffers::IsOutRange(e, TileType_Grass, TileType_Farm)) return "";
+  if (flatbuffers::IsOutRange(e, TileType_Grass, TileType_ChampMur)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesTileType()[index];
 }

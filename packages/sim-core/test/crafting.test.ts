@@ -6,7 +6,10 @@ describe('crafting (fonctions pures)', () => {
   it('mappe les tuiles vers leurs ressources', () => {
     expect(tileResource('forest')).toBe('bois');
     expect(tileResource('stone')).toBe('pierre');
-    expect(tileResource('farm')).toBe('ble');
+    expect(tileResource('dirt')).toBe('argile');
+    expect(tileResource('sand')).toBe('sable');
+    // Le champ ne donne rien passivement : le blé vient de la récolte d'un champ mûr.
+    expect(tileResource('farm')).toBeNull();
     expect(tileResource('grass')).toBeNull();
   });
 
@@ -20,21 +23,41 @@ describe('crafting (fonctions pures)', () => {
     expect(inv.get('bois')).toBe(0);
   });
 
-  it('propose une recette réalisable', () => {
+  it('propose une recette réalisable selon les postes disponibles', () => {
     const inv = new Map<string, number>();
-    add(inv, 'ble', 2);
-    expect(craftable(inv, false)?.id).toBe('pain');
+    add(inv, 'farine', 1);
+    add(inv, 'eau', 1);
+    // Le pain exige un four : indisponible sans poste.
+    expect(craftable(inv, [])).toBeNull();
+    expect(craftable(inv, ['four'])?.id).toBe('pain');
     expect(take(inv, 'pain', 1)).toBe(false);
   });
 });
 
 describe('économie en jeu', () => {
-  it('les agents récoltent des ressources au fil du temps', () => {
+  it('les agents récoltent des ressources brutes variées au fil du temps', () => {
     const sim = new Simulation({ seed: 11, agentCount: 8 });
     for (let i = 0; i < 4000; i++) sim.tick();
-    const totalItems = sim
-      .snapshot()
-      .agents.reduce((acc, a) => acc + a.inventory.reduce((s, st) => s + st.count, 0), 0);
-    expect(totalItems).toBeGreaterThan(0);
+    const inv = new Map<string, number>();
+    for (const a of sim.snapshot().agents)
+      for (const st of a.inventory) inv.set(st.kind, (inv.get(st.kind) ?? 0) + st.count);
+    // Au moins une ressource brute issue d'un gisement a été récoltée.
+    const raw = ['bois', 'pierre', 'argile', 'sable'].filter((k) => (inv.get(k) ?? 0) > 0);
+    expect(raw.length).toBeGreaterThan(0);
+  });
+
+  it('les agents fabriquent des objets et bâtissent avec le temps', () => {
+    const sim = new Simulation({ seed: 7, agentCount: 8 });
+    const initialBuildings = sim.world.buildings.length;
+    for (let i = 0; i < 12000; i++) sim.tick();
+    const inv = new Map<string, number>();
+    for (const a of sim.snapshot().agents)
+      for (const st of a.inventory) inv.set(st.kind, (inv.get(st.kind) ?? 0) + st.count);
+    const crafted = ['planche', 'meuble', 'poterie', 'outil', 'brique', 'verre'].reduce(
+      (s, k) => s + (inv.get(k) ?? 0),
+      0,
+    );
+    expect(crafted).toBeGreaterThan(0); // des objets ont été fabriqués (craft = temps)
+    expect(sim.world.buildings.length).toBeGreaterThan(initialBuildings); // des bâtiments ont été bâtis
   });
 });

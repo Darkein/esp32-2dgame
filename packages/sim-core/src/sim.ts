@@ -1,23 +1,17 @@
-import type { DialogueEvent, WorldSnapshot, Vec2 } from '@game/protocol';
+import type { DialogueEvent, WorldSnapshot, Vec2, TileType } from '@game/protocol';
 import { VOICE_PROFILES } from '@game/protocol';
 import type { LLMProvider } from '@game/llm';
 import { World } from './world';
 import { SimClock } from './clock';
 import { Rng } from './rng';
-import { type Agent, type Personality, makeNeeds, distance } from './entities';
+import { type Agent, type ActivePlan, type Personality, makeNeeds, distance } from './entities';
 import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
 import { decideAction } from './ai/utility';
+import { choosePlan } from './ai/planner';
 import { Orchestrator } from './ai/orchestrator';
-import {
-  HOUSE_COST,
-  add,
-  craftable,
-  inventoryToStacks,
-  pay,
-  take,
-  tileResource,
-} from './crafting';
+import { add, count, inventoryToStacks, pay, take } from './crafting';
+import { BUILD_BY_KIND, FOOD_SATIETY, RECIPE_BY_ID, STARTING_INVENTORY } from './catalog';
 
 const NAMES = [
   'Camille', 'Hugo', 'Léa', 'Noé', 'Jade', 'Lucas', 'Manon', 'Théo',
@@ -57,7 +51,7 @@ export class Simulation {
     const seed = opts.seed ?? 1234;
     this.rng = new Rng(seed);
     this.clock = new SimClock(opts.ticksPerSecond ?? 15);
-    this.world = new World(opts.width ?? 48, opts.height ?? 48, this.rng);
+    this.world = new World(opts.width ?? 48, opts.height ?? 48, this.rng, this.clock.ticksPerDay);
     this.orchestrator = new Orchestrator(opts.provider ?? null, 600, (e) => this.dialogueQueue.push(e));
     this.spawnAgents(opts.agentCount ?? 8);
   }
@@ -111,6 +105,7 @@ export class Simulation {
           inventory: [],
           houses: 0,
         },
+        plan: null,
         personality: this.randomPersonality(),
         aspirations,
         home,
@@ -123,7 +118,7 @@ export class Simulation {
         nextThinkTick: this.rng.int(300),
         thinking: false,
         sayingUntilTick: 0,
-        inventory: new Map(),
+        inventory: new Map(Object.entries(STARTING_INVENTORY)),
         houses: 0,
         nextGatherTick: 0,
       };
@@ -135,6 +130,9 @@ export class Simulation {
   tick(): DialogueEvent[] {
     this.clock.advance();
     const speed = 2.5 / this.clock.ticksPerSecond;
+
+    // Croissance des cultures + repousse des gisements (échéances arrivées à terme).
+    this.world.regrow(this.clock.tick);
 
     for (const agent of this.agents) {
       stepNeeds(agent.state.needs, agent.state.activity);
@@ -152,7 +150,8 @@ export class Simulation {
           this.orchestrator.bias.get(agent.state.id) ?? null,
         );
         agent.intent = decision.activity;
-        agent.target = this.world.nearestWalkable(Math.round(decision.target.x), Math.round(decision.target.y));
+        const target = this.resolveTarget(agent, decision.activity, decision.target);
+        agent.target = this.world.nearestWalkable(Math.round(target.x), Math.round(target.y));
         agent.actionUntilTick = this.clock.tick + this.clock.ticksPerSecond;
       }
 
@@ -180,58 +179,167 @@ export class Simulation {
     // Arrivé : exécuter l'intention.
     agent.state.activity = agent.intent;
     if (agent.intent === 'socializing') this.trySocialize(agent);
-    else if (agent.intent === 'working') this.tryGather(agent);
-    else if (agent.intent === 'crafting') this.tryCraft(agent);
+    else if (agent.intent === 'working') this.advanceWork(agent);
+    else if (agent.intent === 'crafting') this.advancePlan(agent);
     else if (agent.intent === 'eating') this.tryEat(agent);
   }
 
-  /** Récolte la ressource de la tuile courante, à cadence limitée. */
-  private tryGather(agent: Agent): void {
-    if (this.clock.tick < agent.nextGatherTick) return;
-    const res = tileResource(this.world.tileAt(Math.round(agent.state.pos.x), Math.round(agent.state.pos.y)));
-    if (!res) return;
-    add(agent.inventory, res, 1);
-    agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
-    agent.memory.add(this.clock.tick, `J'ai récolté du ${res}`, 2);
+  /** Cible de déplacement selon l'activité : poste de craft, chantier, ou tuile à exploiter. */
+  private resolveTarget(agent: Agent, activity: string, fallback: Vec2): Vec2 {
+    if (activity === 'crafting') return this.planTarget(agent) ?? fallback;
+    if (activity === 'working') return this.workTarget(agent) ?? fallback;
+    return fallback;
   }
 
-  /** Transforme des ressources en objets, puis construit une maison si possible. */
-  private tryCraft(agent: Agent): void {
-    if (this.clock.tick < agent.nextGatherTick) return;
-    agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
+  /** Où l'agent doit se rendre pour avancer son plan (poste requis ou chantier). */
+  private planTarget(agent: Agent): Vec2 | null {
+    if (!agent.plan) agent.plan = this.materializePlan(agent);
+    const plan = agent.plan;
+    if (!plan) return null;
+    if (plan.type === 'build') return plan.site;
+    const station = RECIPE_BY_ID[plan.recipeId]?.station ?? null;
+    if (!station) return agent.home;
+    const b = this.world.findBuilding(station, agent.state.pos);
+    return b ? b.pos : station === 'atelier' ? agent.workplace : null;
+  }
 
-    // Priorité : bâtir une maison (aspiration logement) si les matériaux sont là.
-    if (pay(agent.inventory, HOUSE_COST)) {
-      agent.houses++;
-      agent.state.houses = agent.houses;
-      const spot = this.world.nearestWalkable(Math.round(agent.home.x) + 1, Math.round(agent.home.y));
-      this.world.addBuilding('maison-construite', spot);
-      agent.memory.add(this.clock.tick, 'J\'ai construit une maison !', 8);
+  /** Tuile à exploiter : récolte d'un champ mûr, semis, ou gisement le plus utile. */
+  private workTarget(agent: Agent): Vec2 | null {
+    const pos = agent.state.pos;
+    const has = (k: string) => count(agent.inventory, k);
+    const ripe = this.world.findTile(pos, 'champ_mur');
+    if (ripe) return ripe;
+    if (has('graine') >= 1) {
+      const farm = this.world.findTile(pos, 'farm');
+      if (farm) return farm;
+    }
+    // Besoin d'eau pour la filière pain : aller au bord de l'eau.
+    if (has('farine') >= 1 && has('eau') < 1) {
+      const edge = this.world.findWaterEdge(pos);
+      if (edge) return edge;
+    }
+    const deficits: [TileType, number][] = [
+      ['forest', 8 - has('bois')],
+      ['stone', 5 - has('pierre')],
+      ['dirt', 4 - has('argile')],
+      ['sand', 3 - has('sable')],
+    ];
+    deficits.sort((a, b) => b[1] - a[1]);
+    const wantTile = deficits[0]![1] > 0 ? deficits[0]![0] : 'forest';
+    return (
+      this.world.findTile(pos, wantTile) ??
+      this.world.findTile(pos, 'forest') ??
+      agent.workplace
+    );
+  }
+
+  /** Travail sur place : récolter un champ mûr, semer, ou exploiter un gisement. */
+  private advanceWork(agent: Agent): void {
+    if (this.clock.tick < agent.nextGatherTick) return;
+    const x = Math.round(agent.state.pos.x);
+    const y = Math.round(agent.state.pos.y);
+    const cadence = () => (agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2);
+    const tile = this.world.tileAt(x, y);
+
+    if (tile === 'champ_mur') {
+      const ble = this.world.reap(x, y);
+      if (ble > 0) {
+        add(agent.inventory, 'ble', ble);
+        agent.memory.add(this.clock.tick, `J'ai récolté ${ble} blé`, 3);
+        cadence();
+      }
       return;
     }
-    const inv = agent.inventory;
-    const has = (k: string) => inv.get(k) ?? 0;
-    // Cuire du pain si on a du blé et peu de réserves ; sinon fabriquer des planches
-    // (vers la maison). L'outil reste un repli.
-    let made: string | null = null;
-    if (has('ble') >= 2 && has('pain') < 2 && pay(inv, { ble: 2 })) made = 'pain';
-    else if (has('bois') >= 2 && pay(inv, { bois: 2 })) made = 'planche';
-    else {
-      const recipe = craftable(inv, true);
-      if (recipe && pay(inv, recipe.inputs as Record<string, number>)) made = recipe.id;
+    if (tile === 'farm' && count(agent.inventory, 'graine') >= 1) {
+      if (this.world.plant(x, y, this.clock.tick)) {
+        take(agent.inventory, 'graine', 1);
+        agent.memory.add(this.clock.tick, 'J\'ai semé un champ', 2);
+        cadence();
+      }
+      return;
     }
-    if (made) {
-      add(inv, made, 1);
-      agent.memory.add(this.clock.tick, `J'ai fabriqué : ${made}`, 3);
+    const res = this.world.harvest(x, y, this.clock.tick);
+    if (res) {
+      add(agent.inventory, res, 1);
+      agent.memory.add(this.clock.tick, `J'ai récolté du ${res}`, 2);
+      cadence();
     }
   }
 
-  /** Manger : consomme du pain (meilleur rassasiement) si disponible. */
+  /** Crée le plan concret (paie les matériaux, pose le chantier) à partir de l'intention. */
+  private materializePlan(agent: Agent): ActivePlan | null {
+    const intent = choosePlan(agent, this.world);
+    if (!intent) return null;
+    if (intent.kind === 'craft') {
+      const r = RECIPE_BY_ID[intent.recipeId]!;
+      if (!pay(agent.inventory, r.inputs)) return null;
+      return { type: 'craft', recipeId: intent.recipeId, progress: 0 };
+    }
+    const b = BUILD_BY_KIND[intent.buildKind]!;
+    if (!pay(agent.inventory, b.inputs)) return null;
+    const site = this.pickBuildSite(agent);
+    const chantier = this.world.addBuilding('chantier', site);
+    return { type: 'build', kind: intent.buildKind, site, buildingId: chantier.id, progress: 0 };
+  }
+
+  /** Avance le plan courant (fabrication ou construction) dans le temps. */
+  private advancePlan(agent: Agent): void {
+    if (!agent.plan) agent.plan = this.materializePlan(agent);
+    const plan = agent.plan;
+    if (!plan) return;
+    if (!this.atPlanStation(agent, plan)) return; // pas encore au bon endroit
+
+    plan.progress++;
+    const tps = this.clock.ticksPerSecond;
+    if (plan.type === 'craft') {
+      const r = RECIPE_BY_ID[plan.recipeId]!;
+      if (plan.progress < r.durationSeconds * tps) return;
+      add(agent.inventory, r.output.kind, r.output.qty);
+      agent.memory.add(this.clock.tick, `J'ai fabriqué : ${r.output.kind}`, 3);
+      agent.plan = null;
+    } else {
+      const b = BUILD_BY_KIND[plan.kind]!;
+      if (plan.progress < b.durationSeconds * tps) return;
+      this.world.finishBuilding(plan.buildingId, plan.kind);
+      agent.houses++;
+      agent.state.houses = agent.houses;
+      agent.memory.add(this.clock.tick, `J'ai construit : ${plan.kind}`, 8);
+      agent.plan = null;
+    }
+  }
+
+  /** L'agent est-il au bon poste / sur le chantier pour avancer son plan ? */
+  private atPlanStation(agent: Agent, plan: ActivePlan): boolean {
+    const pos = agent.state.pos;
+    if (plan.type === 'build') return distance(pos, plan.site) < 1.4;
+    const station = RECIPE_BY_ID[plan.recipeId]?.station ?? null;
+    if (!station) return true; // craftable n'importe où
+    const b = this.world.findBuilding(station, pos);
+    return b != null && distance(pos, b.pos) < 1.6;
+  }
+
+  /** Emplacement de construction proche du domicile, sans superposer un bâtiment. */
+  private pickBuildSite(agent: Agent): Vec2 {
+    const hx = Math.round(agent.home.x);
+    const hy = Math.round(agent.home.y);
+    const offsets: [number, number][] = [[2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3]];
+    for (const [dx, dy] of offsets) {
+      const spot = this.world.nearestWalkable(hx + dx, hy + dy);
+      if (!this.world.buildingAt(spot.x, spot.y)) return spot;
+    }
+    return this.world.nearestWalkable(hx + 1, hy + 1);
+  }
+
+  /** Manger : consomme le meilleur aliment disponible (cf. table de rassasiement). */
   private tryEat(agent: Agent): void {
     if (agent.state.needs.hunger > 95) return;
     if (this.clock.tick < agent.nextGatherTick) return;
-    if (take(agent.inventory, 'pain', 1)) {
-      agent.state.needs.hunger = Math.min(100, agent.state.needs.hunger + 25);
+    let best: string | null = null;
+    for (const food of Object.keys(FOOD_SATIETY))
+      if (count(agent.inventory, food) > 0 && (!best || FOOD_SATIETY[food]! > FOOD_SATIETY[best]!))
+        best = food;
+    if (best && take(agent.inventory, best, 1)) {
+      agent.state.needs.hunger = Math.min(100, agent.state.needs.hunger + FOOD_SATIETY[best]!);
       agent.nextGatherTick = this.clock.tick + this.clock.ticksPerSecond * 2;
     }
   }
@@ -265,6 +373,9 @@ export class Simulation {
   }
 
   snapshot(includeChunk = false): WorldSnapshot {
+    // Renvoie aussi le chunk si des tuiles ont changé (croissance/épuisement/repousse),
+    // pour que le client redessine la carte sans nouveau type de message.
+    const withChunk = includeChunk || this.world.consumeTilesDirty();
     return {
       tick: this.clock.tick,
       timeOfDay: this.clock.timeOfDay,
@@ -277,7 +388,7 @@ export class Simulation {
       })),
       items: this.world.items.map((i) => ({ ...i })),
       buildings: this.world.buildings.map((b) => ({ ...b })),
-      chunk: includeChunk
+      chunk: withChunk
         ? { width: this.world.width, height: this.world.height, tiles: [...this.world.tiles] }
         : undefined,
     };

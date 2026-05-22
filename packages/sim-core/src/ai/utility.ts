@@ -1,4 +1,4 @@
-import type { ActivityKind, TileType, Vec2 } from '@game/protocol';
+import type { ActivityKind, Vec2 } from '@game/protocol';
 import type { Agent } from '../entities';
 import { distance } from '../entities';
 import type { World } from '../world';
@@ -14,21 +14,6 @@ export interface Decision {
 interface Candidate {
   score: number;
   decision: Decision;
-}
-
-function findNearestTile(world: World, from: Vec2, type: TileType): Vec2 | null {
-  let best: Vec2 | null = null;
-  let bestD = Infinity;
-  for (let y = 0; y < world.height; y++)
-    for (let x = 0; x < world.width; x++)
-      if (world.tileAt(x, y) === type) {
-        const d = distance(from, { x, y });
-        if (d < bestD) {
-          bestD = d;
-          best = { x, y };
-        }
-      }
-  return best;
 }
 
 function nearestAgent(self: Agent, agents: Agent[]): Agent | null {
@@ -69,35 +54,21 @@ export function decideAction(
     decision: { activity: 'sleeping', target: agent.home, reason: 'dormir' },
   });
 
-  // Manger.
-  const farm = findNearestTile(world, agent.state.pos, 'farm') ?? agent.home;
+  // Manger (depuis l'inventaire, où qu'on soit — on rentre simplement chez soi).
   candidates.push({
     score: norm(n.hunger) * 1.4,
-    decision: { activity: 'eating', target: farm, reason: 'manger' },
+    decision: { activity: 'eating', target: agent.home, reason: 'manger' },
   });
 
-  // Travailler — récolter la ressource dont l'agent manque le plus (bois/pierre/blé),
-  // pour pouvoir crafter et bâtir au lieu d'accumuler une seule ressource.
+  // Travailler — récolter/cultiver. La cible précise (gisement, champ) est résolue par
+  // la simulation (`sim.workTarget`) ; ici on ne fait que pondérer l'envie de travailler.
   const workHours = clock.timeOfDay >= 8 && clock.timeOfDay <= 18;
-  const have = (k: string) => agent.inventory.get(k) ?? 0;
-  const deficits: [TileType, number][] = [
-    ['forest', 8 - have('bois')],
-    ['stone', 4 - have('pierre')],
-    ['farm', 4 - have('ble')],
-  ];
-  deficits.sort((a, b) => b[1] - a[1]);
-  const wantTile = deficits[0]![1] > 0 ? deficits[0]![0] : 'forest';
-  const resourceTile =
-    findNearestTile(world, agent.state.pos, wantTile) ??
-    findNearestTile(world, agent.state.pos, 'forest') ??
-    findNearestTile(world, agent.state.pos, 'farm') ??
-    agent.workplace;
   candidates.push({
     score:
       (workHours ? 0.9 : 0.05) * (0.5 + p.industriousness) * (0.5 + p.conscientiousness) -
       norm(n.energy) * 0.5 -
       norm(n.hunger) * 0.5,
-    decision: { activity: 'working', target: resourceTile, reason: 'récolter des ressources' },
+    decision: { activity: 'working', target: agent.workplace, reason: 'récolter des ressources' },
   });
 
   // Socialiser — selon l'extraversion et le besoin social.

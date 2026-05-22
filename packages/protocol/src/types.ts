@@ -9,7 +9,10 @@ export type TileType =
   | 'stone'
   | 'sand'
   | 'forest'
-  | 'farm';
+  | 'farm'
+  | 'champ_seme'
+  | 'champ_pousse'
+  | 'champ_mur';
 
 export type ActivityKind =
   | 'idle'

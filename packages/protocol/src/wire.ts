@@ -32,8 +32,12 @@ import type {
 // Tables d'enums (ordre identique au schéma .fbs).
 const TILE_TO_FB: Record<TileType, number> = {
   grass: 0, dirt: 1, water: 2, stone: 3, sand: 4, forest: 5, farm: 6,
+  champ_seme: 7, champ_pousse: 8, champ_mur: 9,
 };
-const TILE_FROM_FB: TileType[] = ['grass', 'dirt', 'water', 'stone', 'sand', 'forest', 'farm'];
+const TILE_FROM_FB: TileType[] = [
+  'grass', 'dirt', 'water', 'stone', 'sand', 'forest', 'farm',
+  'champ_seme', 'champ_pousse', 'champ_mur',
+];
 const ACT_TO_FB: Record<ActivityKind, number> = {
   idle: 0, walking: 1, sleeping: 2, eating: 3, working: 4, crafting: 5, talking: 6, socializing: 7,
 };

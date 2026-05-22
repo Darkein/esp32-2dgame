@@ -7,5 +7,8 @@ export enum TileType {
   Stone = 3,
   Sand = 4,
   Forest = 5,
-  Farm = 6
+  Farm = 6,
+  ChampSeme = 7,
+  ChampPousse = 8,
+  ChampMur = 9
 }
