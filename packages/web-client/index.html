@@ -1,80 +1,273 @@
 <!doctype html>
 <html lang="fr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <title>Village d'IA — jeu de vie isométrique</title>
-    <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #1a1f2b; }
-      #app { position: fixed; inset: 0; }
-      .hud { position: fixed; color: #fff; font-size: 13px; user-select: none; }
-      #topbar { top: 8px; left: 8px; display: flex; gap: 8px; align-items: center; }
-      .pill { background: rgba(0,0,0,.55); padding: 6px 10px; border-radius: 8px; backdrop-filter: blur(4px); }
-      button { font: inherit; color: #fff; background: #3a4252; border: 1px solid #555; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
-      button:hover { background: #4a5266; }
-      #panel { top: 8px; right: 8px; width: 260px; background: rgba(0,0,0,.6); padding: 12px; border-radius: 10px; display: none; }
-      #panel h2 { margin: 0 0 4px; font-size: 16px; }
-      .need { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
-      .need span { width: 56px; opacity: .8; }
-      .bar { flex: 1; height: 7px; background: #333; border-radius: 4px; overflow: hidden; }
-      .bar > i { display: block; height: 100%; background: #06d6a0; }
-      #goal { font-style: italic; opacity: .85; margin: 6px 0; }
-      #chatrow { display: flex; gap: 4px; margin-top: 8px; }
-      #chatrow input { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid #555; background: #222; color: #fff; }
-      #log { bottom: 8px; left: 8px; width: 320px; max-height: 30vh; overflow-y: auto; background: rgba(0,0,0,.5); padding: 8px 10px; border-radius: 8px; }
-      #log div { margin: 2px 0; }
-      #log b { color: #ffd166; }
-      .hint { bottom: 8px; right: 8px; opacity: .6; }
-      #startup { inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,13,20,.85); backdrop-filter: blur(3px); z-index: 10; }
-      #startup .card { background: #232a38; padding: 24px; border-radius: 14px; width: 340px; max-width: 90vw; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-      #startup h1 { margin: 0 0 4px; font-size: 18px; }
-      #startup p { margin: 0 0 16px; opacity: .7; font-size: 13px; }
-      #startup .modes { display: flex; gap: 8px; }
-      #startup .modes button { flex: 1; padding: 12px; }
-      #startup .modes button.active { background: #06d6a0; border-color: #06d6a0; color: #06281f; font-weight: 600; }
-      #startup .srv { margin-top: 12px; display: none; }
-      #startup .srv input { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #555; background: #1a1f2b; color: #fff; }
-      #startup label.remember { display: flex; align-items: center; gap: 6px; margin-top: 12px; opacity: .8; font-size: 12px; }
-      #startup #playBtn { width: 100%; margin-top: 16px; padding: 12px; background: #3a8dde; border-color: #3a8dde; font-weight: 600; }
-    </style>
-  </head>
-  <body>
-    <div id="app"></div>
-    <div id="topbar" class="hud">
-      <div class="pill" id="clock">--:--</div>
-      <div class="pill" id="mode">…</div>
-      <button id="voiceBtn">🔊 Voix : off</button>
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Village d'IA — jeu de vie isométrique</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, sans-serif;
+      background: #1a1f2b;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+    }
+
+    .hud {
+      position: fixed;
+      color: #fff;
+      font-size: 13px;
+      user-select: none;
+    }
+
+    #topbar {
+      top: 8px;
+      left: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .pill {
+      background: rgba(0, 0, 0, .55);
+      padding: 6px 10px;
+      border-radius: 8px;
+      backdrop-filter: blur(4px);
+    }
+
+    button {
+      font: inherit;
+      color: #fff;
+      background: #3a4252;
+      border: 1px solid #555;
+      border-radius: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #4a5266;
+    }
+
+    #panel {
+      top: 8px;
+      right: 8px;
+      width: 260px;
+      background: rgba(0, 0, 0, .6);
+      padding: 12px;
+      border-radius: 10px;
+      display: none;
+    }
+
+    #panel h2 {
+      margin: 0 0 4px;
+      font-size: 16px;
+    }
+
+    .need {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 3px 0;
+    }
+
+    .need span {
+      width: 56px;
+      opacity: .8;
+    }
+
+    .bar {
+      flex: 1;
+      height: 7px;
+      background: #333;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .bar>i {
+      display: block;
+      height: 100%;
+      background: #06d6a0;
+    }
+
+    #goal {
+      font-style: italic;
+      opacity: .85;
+      margin: 6px 0;
+    }
+
+    #chatrow {
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+    }
+
+    #chatrow input {
+      flex: 1;
+      padding: 6px;
+      border-radius: 6px;
+      border: 1px solid #555;
+      background: #222;
+      color: #fff;
+    }
+
+    #log {
+      bottom: 8px;
+      left: 8px;
+      width: 320px;
+      max-height: 30vh;
+      overflow-y: auto;
+      background: rgba(0, 0, 0, .5);
+      padding: 8px 10px;
+      border-radius: 8px;
+    }
+
+    #log div {
+      margin: 2px 0;
+    }
+
+    #log b {
+      color: #ffd166;
+    }
+
+    .hint {
+      bottom: 8px;
+      right: 8px;
+      opacity: .6;
+    }
+
+    #startup {
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(10, 13, 20, .85);
+      backdrop-filter: blur(3px);
+      z-index: 10;
+    }
+
+    #startup .card {
+      background: #232a38;
+      padding: 24px;
+      border-radius: 14px;
+      width: 340px;
+      max-width: 90vw;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
+    }
+
+    #startup h1 {
+      margin: 0 0 4px;
+      font-size: 18px;
+    }
+
+    #startup p {
+      margin: 0 0 16px;
+      opacity: .7;
+      font-size: 13px;
+    }
+
+    #startup .modes {
+      display: flex;
+      gap: 8px;
+    }
+
+    #startup .modes button {
+      flex: 1;
+      padding: 12px;
+    }
+
+    #startup .modes button.active {
+      background: #06d6a0;
+      border-color: #06d6a0;
+      color: #06281f;
+      font-weight: 600;
+    }
+
+    #startup .srv {
+      margin-top: 12px;
+      display: none;
+    }
+
+    #startup .srv input {
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #555;
+      background: #1a1f2b;
+      color: #fff;
+    }
+
+    #startup label.remember {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 12px;
+      opacity: .8;
+      font-size: 12px;
+    }
+
+    #startup #playBtn {
+      width: 100%;
+      margin-top: 16px;
+      padding: 12px;
+      background: #3a8dde;
+      border-color: #3a8dde;
+      font-weight: 600;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app"></div>
+  <div id="topbar" class="hud">
+    <div class="pill" id="clock">--:--</div>
+    <div class="pill" id="mode">…</div>
+    <button id="voiceBtn">🔊 Voix : off</button>
+  </div>
+  <div id="panel" class="hud">
+    <h2 id="pname">—</h2>
+    <div id="pactivity" style="opacity:.8"></div>
+    <div id="goal"></div>
+    <div id="inv" style="opacity:.85; margin:4px 0; font-size:12px"></div>
+    <div id="needs"></div>
+    <div id="chatrow">
+      <input id="chatInput" placeholder="Parler / donner un ordre…" />
+      <button id="sendBtn">↵</button>
     </div>
-    <div id="panel" class="hud">
-      <h2 id="pname">—</h2>
-      <div id="pactivity" style="opacity:.8"></div>
-      <div id="goal"></div>
-      <div id="inv" style="opacity:.85; margin:4px 0; font-size:12px"></div>
-      <div id="needs"></div>
-      <div id="chatrow">
-        <input id="chatInput" placeholder="Parler / donner un ordre…" />
-        <button id="sendBtn">↵</button>
+  </div>
+  <div id="log" class="hud"></div>
+  <div id="hint" class="hud hint">Clic = sélectionner • glisser = déplacer • molette = zoom</div>
+  <div id="startup" class="hud" style="display: none;">
+    <div class="card">
+      <h1>Village d'IA</h1>
+      <p>Où faire tourner la simulation ?</p>
+      <div class="modes">
+        <button id="modeLocal" data-mode="local">🖥️ Jeu local<br /><small>dans le navigateur</small></button>
+        <button id="modeServer" data-mode="server">🌐 Serveur distant<br /><small>monde partagé</small></button>
       </div>
-    </div>
-    <div id="log" class="hud"></div>
-    <div id="hint" class="hud hint">Clic = sélectionner • glisser = déplacer • molette = zoom</div>
-    <div id="startup" class="hud">
-      <div class="card">
-        <h1>Village d'IA</h1>
-        <p>Où faire tourner la simulation ?</p>
-        <div class="modes">
-          <button id="modeLocal" data-mode="local">🖥️ Jeu local<br /><small>dans le navigateur</small></button>
-          <button id="modeServer" data-mode="server">🌐 Serveur distant<br /><small>monde partagé</small></button>
-        </div>
-        <div class="srv" id="srvRow">
-          <input id="srvUrl" placeholder="wss://…" />
-        </div>
-        <label class="remember"><input type="checkbox" id="remember" /> Se souvenir de mon choix</label>
-        <button id="playBtn">Jouer</button>
+      <div class="srv" id="srvRow">
+        <input id="srvUrl" placeholder="wss://…" />
       </div>
+      <label class="remember"><input type="checkbox" id="remember" /> Se souvenir de mon choix</label>
+      <button id="playBtn">Jouer</button>
     </div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
 </html>

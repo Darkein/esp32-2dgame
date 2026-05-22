@@ -14,7 +14,7 @@ const DECAY: Needs = {
 const GAIN: Record<ActivityKind, Partial<Needs>> = {
   idle: {},
   walking: {},
-  sleeping: { energy: 0.25 },
+  sleeping: { energy: 0.4 },
   eating: { hunger: 0.5 },
   working: { fun: -0.01, energy: -0.02 },
   crafting: { fun: 0.05 },

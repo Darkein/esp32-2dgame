@@ -106,7 +106,6 @@ async function main() {
 
   // Voix : nécessite une interaction utilisateur.
   $('voiceBtn').addEventListener('click', () => {
-    voice.enable();
     const on = voice.toggle();
     $('voiceBtn').textContent = `🔊 Voix : ${on ? 'on' : 'off'}`;
   });
@@ -119,7 +118,7 @@ const STORAGE_KEY = 'transportChoice';
 /** Affiche la modale de démarrage (local ↔ serveur) ; mémorise le choix si demandé. */
 function chooseTransport(): Promise<TransportChoice | undefined> {
   // Un override `?server=` ou un choix mémorisé court-circuitent la modale.
-  if (new URLSearchParams(location.search).has('server')) return Promise.resolve(undefined);
+  if (new URLSearchParams(location.search).has('server')) return Promise.resolve({ mode: 'server', url: new URLSearchParams(location.search).get('server')?.trim() } as TransportChoice);
   const saved = localStorage.getItem(STORAGE_KEY);
   if (saved) {
     try {
@@ -128,6 +127,9 @@ function chooseTransport(): Promise<TransportChoice | undefined> {
       /* choix corrompu : on réaffiche la modale */
     }
   }
+
+
+      $('startup').style.display = 'block';
 
   return new Promise((resolve) => {
     const startup = $('startup');

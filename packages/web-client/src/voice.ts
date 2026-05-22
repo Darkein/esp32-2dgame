@@ -22,10 +22,6 @@ export class VoiceManager {
   }
 
   /** Doit être appelé suite à une interaction utilisateur (politique audio des navigateurs). */
-  enable(): void {
-    this.enabled = this.supported;
-  }
-
   toggle(): boolean {
     this.enabled = this.supported && !this.enabled;
     if (!this.enabled) speechSynthesis.cancel();
