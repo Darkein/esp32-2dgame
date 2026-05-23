@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Village d'IA — jeu de vie isométrique</title>
   <style>
     :root {
@@ -26,6 +26,17 @@
     #app {
       position: fixed;
       inset: 0;
+      /* Désactive scroll/zoom natif sur le canvas : nos handlers Pointer Events
+         pilotent intégralement la caméra (pan 1 doigt, pinch zoom 2 doigts). */
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+
+    #app canvas {
+      touch-action: none;
     }
 
     .hud {
@@ -36,11 +47,13 @@
     }
 
     #topbar {
-      top: 8px;
+      top: max(8px, env(safe-area-inset-top));
       left: 8px;
+      right: 8px;
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
     }
 
     .pill {
@@ -90,9 +103,10 @@
     }
 
     #panel {
-      top: 8px;
+      top: max(8px, env(safe-area-inset-top));
       right: 8px;
       width: 260px;
+      max-width: calc(100vw - 16px);
       background: rgba(0, 0, 0, .6);
       padding: 12px;
       border-radius: 10px;
@@ -103,6 +117,23 @@
       margin: 0 0 4px;
       font-size: 16px;
     }
+
+    /* Croix de fermeture du panneau agent (utile surtout sur mobile, où il n'y a
+       pas de "désélection" naturelle). Au coin haut-droit du panneau. */
+    #closePanel {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      line-height: 28px;
+      font-size: 18px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+    }
+    #closePanel:hover { background: rgba(255,255,255,.08); }
 
     .need {
       display: flex;
@@ -152,9 +183,10 @@
     }
 
     #log {
-      bottom: 8px;
+      bottom: max(8px, env(safe-area-inset-bottom));
       left: 8px;
       width: 320px;
+      max-width: calc(100vw - 16px);
       max-height: 30vh;
       overflow-y: auto;
       background: rgba(0, 0, 0, .5);
@@ -171,9 +203,31 @@
     }
 
     .hint {
-      bottom: 8px;
+      bottom: max(8px, env(safe-area-inset-bottom));
       right: 8px;
       opacity: .6;
+      max-width: 50vw;
+      text-align: right;
+    }
+
+    /* Sur mobile, le log et le panel se partagent l'écran : on rétrécit le log
+       quand le panel est ouvert (le panel garde la priorité d'affichage). */
+    @media (max-width: 540px) {
+      #log {
+        max-height: 22vh;
+        width: calc(100vw - 16px);
+        font-size: 12px;
+      }
+      #panel {
+        max-height: calc(100vh - 80px);
+        overflow-y: auto;
+      }
+      .hint {
+        display: none; /* place limitée, gestes appris vite */
+      }
+      #topbar .pill { padding: 5px 8px; font-size: 12px; }
+      #speed button { padding: 6px 9px; min-width: 30px; min-height: 32px; }
+      button { min-height: 36px; }
     }
 
     #startup {
@@ -274,6 +328,7 @@
     <button id="voiceBtn">🔊 Voix : off</button>
   </div>
   <div id="panel" class="hud">
+    <button id="closePanel" aria-label="Fermer">×</button>
     <h2 id="pname">—</h2>
     <div id="pactivity" style="opacity:.8"></div>
     <div id="plife" style="opacity:.8; font-size:12px; margin:2px 0"></div>
@@ -286,7 +341,7 @@
     </div>
   </div>
   <div id="log" class="hud"></div>
-  <div id="hint" class="hud hint">Clic = sélectionner • glisser = déplacer • molette = zoom</div>
+  <div id="hint" class="hud hint">Tap = sélectionner • glisser = déplacer • pincer / molette = zoom</div>
   <div id="startup" class="hud" style="display: none;">
     <div class="card">
       <h1>Village d'IA</h1>

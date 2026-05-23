@@ -28,7 +28,7 @@ const MONTHS = [
 async function main() {
   const renderer = new Renderer();
   await renderer.init($('app'));
-  attachCameraControls(renderer.app.canvas, renderer.camera);
+  attachCameraControls(renderer.app.canvas, renderer.camera, (x, y) => renderer.pickAt(x, y));
 
   const voice = new VoiceManager();
   const choice = await chooseTransport();
@@ -80,6 +80,17 @@ async function main() {
   }
 
   renderer.onSelect = showAgent;
+
+  // Fermeture du panneau agent (× au coin haut-droit ; utile surtout au tactile).
+  const closePanel = () => {
+    selectedId = null;
+    $('panel').style.display = 'none';
+  };
+  $('closePanel').addEventListener('click', closePanel);
+  // ESC ferme aussi le panneau (desktop).
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && selectedId != null) closePanel();
+  });
 
   transport.onSnapshot((s: WorldSnapshot) => {
     lastAgents = s.agents;
