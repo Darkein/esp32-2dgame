@@ -226,6 +226,25 @@ export const APPRENTICE_PROXIMITY_TILES = 3;
 /** Rayon (tuiles) du « souvenir partagé » lors d'une sépulture (mort = mémoire collective). */
 export const FUNERAL_MEMORY_RADIUS = 30;
 
+// --- Compétences & apprentissage (Phase 14) --------------------------------
+
+/** XP gagnée par action de travail / craft (avant bonus de proximité d'un mentor). */
+export const XP_PER_ACTION = 1;
+/** Bonus de XP quand un mentor (adulte expérimenté du même métier) travaille à côté. */
+export const APPRENTICE_XP_BONUS = 0.5;
+/** XP nécessaire pour atteindre le niveau N : `LEVEL_BASE_XP * 2^N`. Soit niveaux ~0-7. */
+export const LEVEL_BASE_XP = 20;
+/** Multiplicateur de vitesse de craft/récolte selon le niveau : 1 (N0) → ~2 (N7). */
+export function levelFromXp(xp: number): number {
+  if (xp <= 0) return 0;
+  return Math.min(7, Math.floor(Math.log2(xp / LEVEL_BASE_XP + 1)));
+}
+/** Multiplicateur de cadence selon le niveau (réduction du délai entre actions). */
+export function skillSpeed(level: number): number {
+  // N0 = 1, N1 ≈ 1.10, N7 ≈ 2.0
+  return 1 + level * 0.14;
+}
+
 // --- Relations sociales avancées (Phase 13) --------------------------------
 
 /** Différence d'affinité (rival - partenaire) au-delà de laquelle la jalousie monte. */

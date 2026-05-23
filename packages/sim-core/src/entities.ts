@@ -97,6 +97,8 @@ export interface Agent {
   emotions: Emotions;
   /** Stress cumulé 0..100 (Phase 12). Au-dessus de 80 → fragilité et dialogue altéré. */
   stress: number;
+  /** XP par métier (Phase 14). Le niveau dérivé via `levelFromXp` accélère le travail. */
+  skills: Map<Job, number>;
 }
 
 /** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */

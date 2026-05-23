@@ -16,6 +16,7 @@ import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
   APPRENTICE_PROXIMITY_TILES,
+  APPRENTICE_XP_BONUS,
   BREAKUP_AFFINITY,
   BREAKUP_AFFINITY_SHOCK,
   buildingShape,
@@ -45,6 +46,9 @@ import {
   ILLNESS_INCUBATION_SECONDS,
   ILLNESS_ONSET_PER_YEAR,
   JOB_PROFILES,
+  levelFromXp,
+  skillSpeed,
+  XP_PER_ACTION,
   LIFESPAN_MAX,
   LIFESPAN_MIN,
   MAX_ACTIONS_PER_TICK,
@@ -272,6 +276,7 @@ export class Simulation {
         illness: null,
         emotions: makeEmotions(),
         stress: 0,
+        skills: new Map(),
       };
       this.agents.push(agent);
     }
@@ -532,8 +537,28 @@ export class Simulation {
         }
       }
       if (!acted) return; // rien à faire ici : on n'avance pas la cadence non plus
-      agent.nextGatherGameTime += GATHER_CADENCE_SECONDS;
+      // Compétences : XP gagnée + cadence accélérée par le niveau (Phase 14).
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION);
+      const speed = skillSpeed(levelFromXp(agent.skills.get(agent.state.job as Job) ?? 0));
+      agent.nextGatherGameTime += GATHER_CADENCE_SECONDS / speed;
     }
+  }
+
+  /** Ajoute de la XP à un métier ; bonus si un mentor du même métier travaille à côté. */
+  private gainSkillXp(agent: Agent, job: Job, base: number): void {
+    if (!job) return;
+    let xp = base;
+    // Bonus mentor : un adulte expérimenté du même métier travaille à proximité.
+    for (const other of this.agents) {
+      if (other === agent) continue;
+      if (other.state.job !== job) continue;
+      if (other.state.activity !== 'working' && other.state.activity !== 'crafting') continue;
+      if ((other.skills.get(job) ?? 0) <= (agent.skills.get(job) ?? 0)) continue;
+      if (distance(other.state.pos, agent.state.pos) > APPRENTICE_PROXIMITY_TILES) continue;
+      xp += APPRENTICE_XP_BONUS;
+      break;
+    }
+    agent.skills.set(job, (agent.skills.get(job) ?? 0) + xp);
   }
 
   /** Crée le plan concret (paie les matériaux, pose le chantier) à partir de l'intention. */
@@ -564,13 +589,15 @@ export class Simulation {
     if (!plan) return;
     if (!this.atPlanStation(agent, plan)) return; // pas encore au bon endroit
 
-    // `progress` accumule des secondes de jeu ; les durées du catalogue sont en s de jeu.
-    plan.progress += dt;
+    // Compétences : le craft/la construction avancent plus vite si l'agent maîtrise son métier.
+    const skillLvl = levelFromXp(agent.skills.get(agent.state.job as Job) ?? 0);
+    plan.progress += dt * skillSpeed(skillLvl);
     if (plan.type === 'craft') {
       const r = RECIPE_BY_ID[plan.recipeId]!;
       if (plan.progress < r.durationSeconds) return;
       add(agent.inventory, r.output.kind, r.output.qty);
       agent.memory.add(this.clock.tick, `J'ai fabriqué : ${r.output.kind}`, 3);
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION);
       agent.plan = null;
     } else {
       const b = BUILD_BY_KIND[plan.kind]!;
@@ -579,6 +606,8 @@ export class Simulation {
       agent.houses++;
       agent.state.houses = agent.houses;
       agent.memory.add(this.clock.tick, `J'ai construit : ${plan.kind}`, 8);
+      // Construction = gros gain d'XP (vise plusieurs niveaux pour un grand chantier).
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION * 3);
       agent.plan = null;
     }
   }
@@ -890,6 +919,7 @@ export class Simulation {
       illness: null,
       emotions: makeEmotions(),
       stress: 0,
+      skills: new Map(),
     };
     this.agents.push(agent);
     mother.memory.add(now, `Naissance de ${name}`, 9);

@@ -220,14 +220,22 @@ Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dial
 - Fichiers : `sim-core/src/social.ts` (nouveau), `sim-core/src/sim.ts`
   (`stepRelations`, `breakup`), `sim-core/src/catalog.ts` (constantes Phase 13)
 
-## ⬜ Phase 14 — Compétences & apprentissage *(P2)*
-- [ ] Tableau de skills par métier (fermier, bûcheron, mineur, artisan, boulanger, soigneur…)
-- [ ] Gain d'XP par action ; niveau → vitesse/qualité du craft, taux d'échec
-- [ ] **Apprentissage** : enfant proche d'un adulte travaillant → XP gratuit dans son métier
-- [ ] **Mentorat** explicite (Phase 9) : aîné enseigne à jeune
+## 🟦 Phase 14 — Compétences & apprentissage *(P2)*
+- [x] **`Agent.skills`** : Map `Job → XP` (gain à chaque action de travail/craft)
+- [x] **Niveau** dérivé via `levelFromXp` (log2 borné 0..7) — `LEVEL_BASE_XP` paliers
+- [x] **Vitesse** accélérée par le niveau (`skillSpeed`) : cadence du travail et progression
+  du craft/construction multipliées
+- [x] **Apprentissage actif** : XP bonus (`APPRENTICE_XP_BONUS`) si un mentor du même
+  métier travaille à `APPRENTICE_PROXIMITY_TILES` — c'est le pendant « pendant la vie
+  active » du mentorat adolescent de Phase 9
+- [x] **Construction = gros gain** (XP_PER_ACTION × 3) — un grand chantier fait monter
+  vite de niveau
 - [ ] **Recettes débloquables** : certaines connues uniquement après XP minimum
 - [ ] Transmission culturelle : recettes peuvent disparaître si plus personne ne les connaît
-- Fichiers : extension `entities.ts`, `crafting.ts`, `planner.ts`
+- [ ] Exposer `skills` au protocole (`pnpm codegen`)
+- Fichiers : `sim-core/src/catalog.ts` (`levelFromXp`, `skillSpeed`),
+  `sim-core/src/sim.ts` (`gainSkillXp`, application dans `advanceWork` / `advancePlan`),
+  `sim-core/src/entities.ts` (champ `skills`)
 
 ## ⬜ Phase 15 — Faune & écosystème *(P2)*
 - [ ] Animaux sauvages : cerfs, lapins, sangliers, loups, poissons (entités légères)
