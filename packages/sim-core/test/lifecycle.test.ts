@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Simulation } from '../src/sim';
 import { SimClock, BASE_SCALE } from '../src/clock';
-import { YEAR_SECONDS, GESTATION_SECONDS } from '../src/catalog';
+import { ELDER_AGE, ELDER_ENERGY_CAP, TEEN_AGE, YEAR_SECONDS, GESTATION_SECONDS } from '../src/catalog';
 
 describe('échelle de temps', () => {
   it('le temps de jeu écoulé par tick est proportionnel à la vitesse', () => {
@@ -33,6 +33,46 @@ describe('cycle de la vie', () => {
     a.birthGameTime = sim.clock.gameTime - 80.5 * YEAR_SECONDS;
     sim.tick();
     expect(sim.agents.find((x) => x.state.id === id)).toBeUndefined();
+  });
+
+  it("l'énergie d'un aîné est plafonnée par ELDER_ENERGY_CAP", () => {
+    const sim = new Simulation({ seed: 3, agentCount: 2 });
+    const a = sim.agents[0]!;
+    a.birthGameTime = sim.clock.gameTime - (ELDER_AGE + 5) * YEAR_SECONDS;
+    a.state.lifeStage = 'adulte';
+    a.state.needs.energy = 100; // tente de dépasser le plafond
+    sim.setSpeed(1);
+    sim.tick();
+    expect(a.state.lifeStage).toBe('aine');
+    expect(a.state.needs.energy).toBeLessThanOrEqual(ELDER_ENERGY_CAP);
+  });
+
+  it("un ado qui a un métier appris en hérite à la majorité (plutôt que par défaut)", () => {
+    const sim = new Simulation({ seed: 4, agentCount: 2 });
+    const teen = sim.agents[0]!;
+    teen.birthGameTime = sim.clock.gameTime - 17.99 * YEAR_SECONDS;
+    teen.state.lifeStage = 'enfant';
+    teen.state.job = '';
+    teen.learnedJob = 'fermier';
+    teen.apprenticeXp.set('fermier', 1000);
+    sim.setSpeed(1_000_000);
+    for (let i = 0; i < 50 && teen.state.lifeStage === 'enfant'; i++) sim.tick();
+    expect(teen.state.lifeStage).toBe('adulte');
+    expect(teen.state.job).toBe('fermier');
+  });
+
+  it("la mort laisse un souvenir partagé aux villageois proches", () => {
+    const sim = new Simulation({ seed: 5, agentCount: 3 });
+    const dying = sim.agents[0]!;
+    const witness = sim.agents[1]!;
+    witness.state.pos = { ...dying.state.pos };
+    const beforeMem = witness.memory.recentText(sim.clock.tick, 10);
+    dying.lifespanYears = 80;
+    dying.birthGameTime = sim.clock.gameTime - 80.5 * YEAR_SECONDS;
+    sim.tick();
+    const afterMem = witness.memory.recentText(sim.clock.tick, 10);
+    expect(afterMem).toContain('mort');
+    expect(afterMem).not.toEqual(beforeMem);
   });
 
   it('une grossesse aboutit à la naissance d\'un enfant', () => {

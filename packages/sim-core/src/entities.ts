@@ -1,6 +1,6 @@
 import type { ActivityKind, AgentState, LifeStage, Needs, Vec2 } from '@game/protocol';
 import type { Job } from './catalog';
-import { ADULT_AGE, ELDER_AGE } from './catalog';
+import { ADULT_AGE, ELDER_AGE, TEEN_AGE } from './catalog';
 import type { MemoryStream } from './ai/memory';
 
 /** Projet en cours d'un agent (fabrication ou construction). Le travail agricole
@@ -71,6 +71,12 @@ export interface Agent {
   parents: [number, number] | null;
   /** Grossesse en cours, ou null. */
   pregnant: Pregnancy | null;
+  /** Mentor observé pendant l'adolescence (Phase 9). Détermine le métier à l'âge adulte. */
+  mentorId: number | null;
+  /** Métier appris auprès d'un mentor adolescent. `null` = pas d'apprentissage encore acquis. */
+  learnedJob: Job | null;
+  /** Temps (s de jeu) cumulé en observation d'un mentor au travail, par métier. */
+  apprenticeXp: Map<Job, number>;
 }
 
 /** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */
@@ -94,6 +100,11 @@ export function lifeStageFor(ageYears: number): LifeStage {
   if (ageYears < ADULT_AGE) return 'enfant';
   if (ageYears < ELDER_AGE) return 'adulte';
   return 'aine';
+}
+
+/** Vrai si l'agent est en âge d'apprendre un métier (adolescence, < majorité). */
+export function isTeen(ageYears: number): boolean {
+  return ageYears >= TEEN_AGE && ageYears < ADULT_AGE;
 }
 
 export function distance(a: Vec2, b: Vec2): number {

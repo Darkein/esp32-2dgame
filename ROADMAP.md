@@ -121,19 +121,25 @@ boucle de tick. Ces phases activent et étendent ces fondations.
 - **P2 — Profondeur** : Phase 14 (compétences), 15 (faune), 19 (entretien), 20 (cognition IA), 21 (UX joueur)
 - **P3 — Civilisation** : Phase 16 (politique), 17 (culture), 18 (économie avancée)
 
-## ⬜ Phase 9 — Démographie & cycle de vie *(P1)*
+## 🟦 Phase 9 — Démographie & cycle de vie *(P1)*
 Activer le scaffold existant (`Agent.age`, `lifeStage`, `pregnant`, `partnerId`).
-- [ ] Vieillissement effectif : `age_years` incrémenté au passage d'année (`SimClock.year`)
-- [ ] **Conception** : si `affinity ≥ COUPLE_THRESHOLD` entre deux agents fertiles et
-  cohabitants → tirage `CONCEPTION_RATE_PER_YEAR` (déjà dans `catalog.ts`)
-- [ ] **Gestation** : décompte `GESTATION_SECONDS`, état visible (HUD/sprite)
-- [ ] **Naissance** : nouvel agent avec `father_id`/`mother_id`, hérite village + maison
-- [ ] **Enfance** (< 14 ans) : ne travaille pas, suit un parent, joue
-- [ ] **Adolescence / apprentissage** (14–18) : choisit un mentor adulte → biais métier
-- [ ] **Aînés** (> 60) : énergie max réduite, sagesse ↑ (poids mémoire ↑)
-- [ ] **Mort** à `lifespan` (tiré entre `LIFESPAN_MIN/MAX`), ou via Phase 10
-- [ ] Sépulture / souvenir partagé à forte importance
-- Fichiers : `sim-core/src/sim.ts` (tick annuel), nouveau `sim-core/src/demography.ts`
+- [x] Vieillissement effectif : `ageYears` recalculé à chaque tick (`Simulation.stepLife`)
+- [x] **Conception** : femme en couple, fertile → tirage `CONCEPTION_RATE_PER_YEAR`
+- [x] **Gestation** : décompte `GESTATION_SECONDS` puis naissance
+- [x] **Naissance** : nouvel agent avec parents, voix enfantine, personnalité héritée
+- [x] **Enfance** : ne travaille ni ne commerce (`utility.ts` filtre `isChild`)
+- [x] **Adolescence / apprentissage** : observation d'un adulte au travail à proximité
+  (`APPRENTICE_PROXIMITY_TILES`) → `apprenticeXp` par métier, `learnedJob` adopté à la
+  majorité (`Simulation.observeMentor`)
+- [x] **Aînés** : énergie plafonnée à `ELDER_ENERGY_CAP` (fatigue plus rapide)
+- [x] **Mort** à `lifespan` (tiré entre `LIFESPAN_MIN/MAX`)
+- [x] **Sépulture / souvenir partagé** : tous les villageois proches gagnent un souvenir
+  d'importance 9 (10 pour la famille), dialogue funéraire émis
+- [x] **Héritage** : biens transmis à un enfant survivant, sinon publics
+- [ ] Sagesse des aînés : poids mémoire renforcé / boost importance — *à faire (Phase 20)*
+- Fichiers : `sim-core/src/sim.ts` (`stepLife`, `observeMentor`, `removeAgents`),
+  `sim-core/src/entities.ts` (`isTeen`, champs `mentorId`/`learnedJob`/`apprenticeXp`),
+  `sim-core/src/catalog.ts` (`TEEN_AGE`, `ELDER_ENERGY_CAP`, `FUNERAL_MEMORY_RADIUS`)
 
 ## ⬜ Phase 10 — Santé, blessures, maladies *(P1)*
 - [ ] Stat `health` (0..1) par agent, séparée des besoins

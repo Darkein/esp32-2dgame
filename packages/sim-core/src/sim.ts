@@ -3,7 +3,7 @@ import type { LLMProvider } from '@game/llm';
 import { World } from './world';
 import { SimClock, GAME_SECONDS_PER_DAY } from './clock';
 import { Rng } from './rng';
-import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance, lifeStageFor } from './entities';
+import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance, lifeStageFor, isTeen } from './entities';
 import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
 import { decideAction } from './ai/utility';
@@ -13,14 +13,17 @@ import { findPath } from './ai/pathfind';
 import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
+  APPRENTICE_PROXIMITY_TILES,
   buildingShape,
   BUILD_BY_KIND,
   CONCEPTION_RATE_PER_YEAR,
   COUPLE_THRESHOLD,
   DECISION_INTERVAL_SECONDS,
+  ELDER_ENERGY_CAP,
   FERTILE_MAX,
   FERTILE_MIN,
   FOOD_SATIETY,
+  FUNERAL_MEMORY_RADIUS,
   GATHER_CADENCE_SECONDS,
   GESTATION_SECONDS,
   JOB_PROFILES,
@@ -237,6 +240,9 @@ export class Simulation {
         lifespanYears: this.rng.range(LIFESPAN_MIN, LIFESPAN_MAX),
         parents: null,
         pregnant: null,
+        mentorId: null,
+        learnedJob: null,
+        apprenticeXp: new Map(),
       };
       this.agents.push(agent);
     }
@@ -648,12 +654,19 @@ export class Simulation {
       const age = (now - a.birthGameTime) / YEAR_SECONDS;
       a.state.ageYears = Math.floor(age);
       const stage = lifeStageFor(age);
-      // Passage à l'âge adulte : on attribue un métier et une voix d'adulte.
+      // Apprentissage : l'ado accumule de l'XP dans le métier d'un adulte au travail
+      // qu'il observe à proximité. Le métier dominant deviendra le sien à la majorité.
+      if (isTeen(age)) this.observeMentor(a, dt);
+      // Passage à l'âge adulte : métier hérité du mentorat si possible, sinon par défaut.
       if (a.state.lifeStage === 'enfant' && stage !== 'enfant') {
-        a.state.job = assignJob(a.aspirations, a.personality);
+        a.state.job = a.learnedJob ?? assignJob(a.aspirations, a.personality);
         a.state.voiceProfile = this.voiceFor(a.state.gender, false);
       }
       a.state.lifeStage = stage;
+      // Aîné : énergie plafonnée (la fatigue arrive plus vite après 65 ans).
+      if (stage === 'aine' && a.state.needs.energy > ELDER_ENERGY_CAP) {
+        a.state.needs.energy = ELDER_ENERGY_CAP;
+      }
 
       // Mort de vieillesse.
       if (age > a.lifespanYears) {
@@ -739,6 +752,9 @@ export class Simulation {
       lifespanYears: this.rng.range(LIFESPAN_MIN, LIFESPAN_MAX),
       parents: [mother.state.id, father.state.id],
       pregnant: null,
+      mentorId: null,
+      learnedJob: null,
+      apprenticeXp: new Map(),
     };
     this.agents.push(agent);
     mother.memory.add(now, `Naissance de ${name}`, 9);
@@ -751,8 +767,10 @@ export class Simulation {
     });
   }
 
-  /** Retire des agents morts : libère les conjoints et transmet leurs biens (héritage). */
+  /** Retire des agents morts : libère les conjoints, transmet les biens (héritage),
+   *  et inscrit un « souvenir partagé » de forte importance chez les villageois proches. */
   private removeAgents(ids: number[]): void {
+    const now = this.clock.gameTime;
     for (const id of ids) {
       const idx = this.agents.findIndex((a) => a.state.id === id);
       if (idx < 0) continue;
@@ -761,11 +779,69 @@ export class Simulation {
         const p = this.agents.find((x) => x.state.id === a.state.partnerId);
         if (p) p.state.partnerId = 0;
       }
+      // Sépulture : tout villageois proche garde un souvenir marquant (importance 9).
+      // Parents/conjoint/enfants obtiennent un souvenir maximal (10).
+      const kin = new Set<number>([a.state.partnerId, ...(a.parents ?? [])].filter((x) => x > 0));
+      for (const x of this.agents) {
+        if (x.state.id === id || ids.includes(x.state.id)) continue;
+        if (x.parents?.includes(id)) kin.add(x.state.id);
+        const close = distance(x.state.pos, a.state.pos) <= FUNERAL_MEMORY_RADIUS;
+        if (close || kin.has(x.state.id)) {
+          const intensity = kin.has(x.state.id) ? 10 : 9;
+          x.memory.add(now, `${a.state.name} est mort(e) à ${a.state.ageYears} ans`, intensity);
+        }
+      }
+      if (kin.size > 0) {
+        // Une annonce funéraire (dialogue collectif visible côté joueur).
+        const speaker = this.agents.find((x) => kin.has(x.state.id));
+        if (speaker) {
+          this.dialogueQueue.push({
+            speakerId: speaker.state.id,
+            listenerId: 0,
+            text: `Nous avons perdu ${a.state.name}. Repose en paix.`,
+            voiceProfile: speaker.state.voiceProfile,
+          });
+        }
+      }
       // Héritage : un enfant vivant récupère les biens, sinon ils deviennent publics.
       const heir = this.agents.find((x) => x.parents?.includes(id) && !ids.includes(x.state.id));
       this.world.reassignOwner(id, heir ? heir.state.id : 0);
       this.agents.splice(idx, 1);
     }
+  }
+
+  /** Apprentissage : si un adulte travaille à proximité d'un ado, l'ado gagne du temps
+   *  d'observation dans le métier de l'adulte. Le métier le plus observé devient le
+   *  sien au passage à la majorité (cf. `stepLife`). */
+  private observeMentor(teen: Agent, dt: number): void {
+    let bestMentor: Agent | null = null;
+    let bestDist = APPRENTICE_PROXIMITY_TILES + 0.001;
+    for (const adult of this.agents) {
+      if (adult === teen) continue;
+      if (adult.state.lifeStage !== 'adulte' && adult.state.lifeStage !== 'aine') continue;
+      if (adult.state.activity !== 'working' && adult.state.activity !== 'crafting') continue;
+      if (!adult.state.job) continue;
+      const d = distance(teen.state.pos, adult.state.pos);
+      if (d < bestDist) {
+        bestDist = d;
+        bestMentor = adult;
+      }
+    }
+    if (!bestMentor) return;
+    const job = bestMentor.state.job as Job;
+    const xp = (teen.apprenticeXp.get(job) ?? 0) + dt;
+    teen.apprenticeXp.set(job, xp);
+    teen.mentorId = bestMentor.state.id;
+    // Élit le métier dominant à chaque tick (peu coûteux, peu de métiers).
+    let topJob: Job = job;
+    let topXp = xp;
+    for (const [k, v] of teen.apprenticeXp) {
+      if (v > topXp) {
+        topXp = v;
+        topJob = k;
+      }
+    }
+    teen.learnedJob = topJob;
   }
 
   private drainDialogues(): DialogueEvent[] {

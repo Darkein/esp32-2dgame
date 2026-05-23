@@ -203,6 +203,8 @@ export const YEAR_SECONDS = 365 * GAME_SECONDS_PER_DAY;
 /** Âge (années de jeu) d'accès à l'âge adulte et à la vieillesse. */
 export const ADULT_AGE = 18;
 export const ELDER_AGE = 65;
+/** Âge à partir duquel un enfant peut apprendre un métier auprès d'un mentor. */
+export const TEEN_AGE = 14;
 /** Espérance de vie tirée aléatoirement dans cet intervalle (années de jeu). */
 export const LIFESPAN_MIN = 72;
 export const LIFESPAN_MAX = 92;
@@ -217,6 +219,12 @@ export const COUPLE_THRESHOLD = 60;
 export const CONCEPTION_RATE_PER_YEAR = 0.6;
 /** Plafond de population (sécurité performance / explosion démographique). */
 export const MAX_POP = 60;
+/** Plafond d'énergie d'un aîné : la fatigue arrive plus vite après 65 ans. */
+export const ELDER_ENERGY_CAP = 75;
+/** Distance (tuiles) sous laquelle un ado apprend en observant un adulte au travail. */
+export const APPRENTICE_PROXIMITY_TILES = 3;
+/** Rayon (tuiles) du « souvenir partagé » lors d'une sépulture (mort = mémoire collective). */
+export const FUNERAL_MEMORY_RADIUS = 30;
 
 /** Prix d'équilibre indicatif (en pièces) ; le marché les fait varier selon l'offre. */
 export const BASE_PRICE: Record<string, number> = {
