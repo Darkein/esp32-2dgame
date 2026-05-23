@@ -90,6 +90,19 @@ export function decideAction(
     decision: { activity: 'crafting', target: agent.home, reason: 'se détendre / bricoler' },
   });
 
+  // Se laver — puits du village en priorité, sinon bord d'eau le plus proche.
+  // Les enfants se lavent aussi (l'hygiène concerne tout le monde).
+  // Sous le seuil santé (~30), l'urgence enfle pour passer devant le travail.
+  const wellDoor = world.findBuilding('puits', agent.state.pos)?.door ?? null;
+  const waterEdge = wellDoor ?? world.findWaterEdge(agent.state.pos);
+  if (waterEdge) {
+    const urgency = Math.max(0, 1 - n.hygiene / 30); // 0 si propre, 1 si effondré
+    candidates.push({
+      score: norm(n.hygiene) * (1.1 + urgency * 1.5) * (0.7 + p.conscientiousness * 0.4),
+      decision: { activity: 'washing', target: waterEdge, reason: 'se laver' },
+    });
+  }
+
   // Commercer — aller au marché si l'on a des surplus à vendre ou faim sans nourriture.
   const market = isChild ? null : world.findBuilding('marche', agent.state.pos);
   if (market) {

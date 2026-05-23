@@ -1,29 +1,54 @@
-import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender } from '@game/protocol';
+import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender, WeatherState } from '@game/protocol';
 import type { LLMProvider } from '@game/llm';
 import { World } from './world';
 import { SimClock, GAME_SECONDS_PER_DAY } from './clock';
 import { Rng } from './rng';
-import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance, lifeStageFor } from './entities';
+import { makeWeather, rollWeather, WEATHER_EFFECTS } from './weather';
+import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance, lifeStageFor, isTeen } from './entities';
 import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
 import { decideAction } from './ai/utility';
 import { choosePlan } from './ai/planner';
 import { Orchestrator } from './ai/orchestrator';
 import { findPath } from './ai/pathfind';
+import { bumpEmotion, decayEmotions, makeEmotions } from './ai/emotion';
 import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
+  APPRENTICE_PROXIMITY_TILES,
+  APPRENTICE_XP_BONUS,
+  BREAKUP_AFFINITY,
+  BREAKUP_AFFINITY_SHOCK,
   buildingShape,
   BUILD_BY_KIND,
   CONCEPTION_RATE_PER_YEAR,
+  CONTAGION_RADIUS,
+  CONTAGION_RATE_PER_SEC,
   COUPLE_THRESHOLD,
+  JEALOUSY_DECAY_PER_SEC,
+  JEALOUSY_GAP,
   DECISION_INTERVAL_SECONDS,
+  ELDER_ENERGY_CAP,
   FERTILE_MAX,
   FERTILE_MIN,
   FOOD_SATIETY,
+  FRAGILE_FACTOR,
+  FUNERAL_MEMORY_RADIUS,
   GATHER_CADENCE_SECONDS,
   GESTATION_SECONDS,
+  HEALTH_DEATH_THRESHOLD,
+  HEALTH_DECAY_FROM_HYGIENE_PER_SEC,
+  HEALTH_MAX,
+  HEALTH_RECOVERY_PER_SEC,
+  HYGIENE_HEALTH_THRESHOLD,
+  ILLNESS_DAMAGE_PER_SEC,
+  ILLNESS_DURATION_SECONDS,
+  ILLNESS_INCUBATION_SECONDS,
+  ILLNESS_ONSET_PER_YEAR,
   JOB_PROFILES,
+  levelFromXp,
+  skillSpeed,
+  XP_PER_ACTION,
   LIFESPAN_MAX,
   LIFESPAN_MIN,
   MAX_ACTIONS_PER_TICK,
@@ -70,6 +95,8 @@ export class Simulation {
   readonly market = new Market();
   /** Centres des hameaux pré-amorcés (spawns + ancrage des constructions). */
   readonly villages: Vec2[] = [];
+  /** Météo courante (renouvelée chaque jour selon la saison). */
+  weather: WeatherState;
   private readonly rng: Rng;
   private readonly orchestrator: Orchestrator;
   private readonly dialogueQueue: DialogueEvent[] = [];
@@ -88,6 +115,11 @@ export class Simulation {
     const center = this.villages[0]!;
     this.placeBuilding('marche', center);
     this.spawnAgents(opts.agentCount ?? 8);
+    this.weather = makeWeather(
+      rollWeather(this.clock.season, this.rng),
+      this.clock.gameTime,
+      GAME_SECONDS_PER_DAY,
+    );
   }
 
   /** Pré-amorce 2-3 centres de village dispersés (quadrants opposés).
@@ -237,6 +269,14 @@ export class Simulation {
         lifespanYears: this.rng.range(LIFESPAN_MIN, LIFESPAN_MAX),
         parents: null,
         pregnant: null,
+        mentorId: null,
+        learnedJob: null,
+        apprenticeXp: new Map(),
+        health: HEALTH_MAX,
+        illness: null,
+        emotions: makeEmotions(),
+        stress: 0,
+        skills: new Map(),
       };
       this.agents.push(agent);
     }
@@ -270,6 +310,11 @@ export class Simulation {
       const subEnd = endTime - (nSubsteps - 1 - s) * subDt;
       // Échéances de tuiles arrivées à terme dans cette tranche (cultures, gisements).
       this.world.regrow(subEnd);
+      // Santé : exécutée à cette granularité (sinon l'effet hygiène/maladie subit le `dt`
+      // entier du tick à grande vitesse et tue tout le monde d'un coup).
+      this.stepHealthAll(subDt);
+      // Émotions : décroissance fine + impulsions liées aux besoins critiques.
+      this.stepEmotionsAll(subDt);
       for (const agent of this.agents) {
         stepNeeds(agent.state.needs, agent.state.activity, subDt);
 
@@ -302,10 +347,23 @@ export class Simulation {
       if (agent.state.saying && this.clock.tick >= agent.sayingUntilTick) agent.state.saying = '';
     }
 
+    // Météo : renouvelée à chaque bord de journée (selon la saison courante).
+    this.updateWeather();
+
+    // Relations : jalousie, ruptures (lent, une fois par tick réel suffit).
+    this.stepRelations(dtTotal);
+
     // Cycle de la vie : vieillissement, couples, grossesses, naissances, morts.
     this.stepLife(dtTotal);
 
     return this.drainDialogues();
+  }
+
+  /** Renouvelle la météo si la fenêtre courante est expirée. */
+  private updateWeather(): void {
+    if (this.clock.gameTime < this.weather.untilGameTime) return;
+    const kind = rollWeather(this.clock.season, this.rng);
+    this.weather = makeWeather(kind, this.clock.gameTime, GAME_SECONDS_PER_DAY);
   }
 
   private stepMovement(agent: Agent, dt: number, now: number): void {
@@ -337,7 +395,9 @@ export class Simulation {
       const dy = wp.y - pos.y;
       const d = Math.hypot(dx, dy) || 1;
       // Pas borné à la distance restante (évite le dépassement en avance rapide).
-      const step = Math.min(WALK_TILES_PER_GAME_SEC * dt, d);
+      // Météo : pluie/neige/etc. ralentissent la marche (cf. `WEATHER_EFFECTS`).
+      const weatherSpeed = WEATHER_EFFECTS[this.weather.kind].walkSpeed;
+      const step = Math.min(WALK_TILES_PER_GAME_SEC * weatherSpeed * dt, d);
       const prevTx = Math.round(pos.x);
       const prevTy = Math.round(pos.y);
       pos.x += (dx / d) * step;
@@ -356,6 +416,15 @@ export class Simulation {
     else if (agent.intent === 'crafting') this.advancePlan(agent, dt);
     else if (agent.intent === 'eating') this.tryEat(agent, now);
     else if (agent.intent === 'trading') this.tryTrade(agent, now);
+    else if (agent.intent === 'washing') this.tryWash(agent, now);
+  }
+
+  /** Se laver : pas d'action discrète, le gain d'hygiène est appliqué par `stepNeeds`
+   *  tant que `state.activity === 'washing'`. On marque juste un souvenir cadencé. */
+  private tryWash(agent: Agent, now: number): void {
+    if (now < agent.nextGatherGameTime) return;
+    agent.memory.add(this.clock.tick, "Je me suis lavé(e)", 1);
+    agent.nextGatherGameTime = now + GATHER_CADENCE_SECONDS;
   }
 
   /** Cible de déplacement selon l'activité : poste de craft, chantier, marché ou gisement. */
@@ -363,6 +432,10 @@ export class Simulation {
     if (activity === 'crafting') return this.planTarget(agent) ?? fallback;
     if (activity === 'working') return this.workTarget(agent) ?? fallback;
     if (activity === 'trading') return this.world.findBuilding('marche', agent.state.pos)?.door ?? fallback;
+    if (activity === 'washing') {
+      const well = this.world.findBuilding('puits', agent.state.pos);
+      return well?.door ?? this.world.findWaterEdge(agent.state.pos) ?? fallback;
+    }
     return fallback;
   }
 
@@ -392,12 +465,14 @@ export class Simulation {
       // Récolter son propre champ mûr, sinon semer sur son champ libre.
       const ripe = this.world.findOwnedFarm(pos, 'champ_mur', id);
       if (ripe) return ripe;
-      if (has('graine') >= 1) {
+      // Saisons / météo : on ne sème pas en hiver (rien ne pousse) ni en canicule.
+      const canSow = this.clock.season !== 'hiver' && this.weather.kind !== 'canicule';
+      if (canSow && has('graine') >= 1) {
         const empty = this.world.findOwnedFarm(pos, 'farm', id);
         if (empty) return empty;
       }
       // Étendre son exploitation : labourer une nouvelle parcelle proche du domicile.
-      if (this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
+      if (canSow && this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
         const spot = this.world.findCultivable(agent.home);
         if (spot) return spot;
       }
@@ -444,13 +519,24 @@ export class Simulation {
           agent.memory.add(this.clock.tick, `J'ai récolté ${ble} blé`, 3);
           acted = true;
         }
-      } else if (tile === 'farm' && this.world.farmOwnerAt(x, y) === id && count(agent.inventory, 'graine') >= 1) {
+      } else if (
+        tile === 'farm' &&
+        this.world.farmOwnerAt(x, y) === id &&
+        count(agent.inventory, 'graine') >= 1 &&
+        this.clock.season !== 'hiver' &&
+        this.weather.kind !== 'canicule'
+      ) {
         if (this.world.plant(x, y, now)) {
           take(agent.inventory, 'graine', 1);
           agent.memory.add(this.clock.tick, "J'ai semé un champ", 2);
           acted = true;
         }
-      } else if (profile.farms && (tile === 'grass' || tile === 'dirt') && this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
+      } else if (
+        profile.farms &&
+        (tile === 'grass' || tile === 'dirt') &&
+        this.world.countFarms(id) < MAX_FARMS_PER_AGENT &&
+        this.clock.season !== 'hiver'
+      ) {
         if (this.world.cultivate(x, y, id)) {
           agent.memory.add(this.clock.tick, "J'ai labouré un nouveau champ", 4);
           acted = true;
@@ -464,8 +550,28 @@ export class Simulation {
         }
       }
       if (!acted) return; // rien à faire ici : on n'avance pas la cadence non plus
-      agent.nextGatherGameTime += GATHER_CADENCE_SECONDS;
+      // Compétences : XP gagnée + cadence accélérée par le niveau (Phase 14).
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION);
+      const speed = skillSpeed(levelFromXp(agent.skills.get(agent.state.job as Job) ?? 0));
+      agent.nextGatherGameTime += GATHER_CADENCE_SECONDS / speed;
     }
+  }
+
+  /** Ajoute de la XP à un métier ; bonus si un mentor du même métier travaille à côté. */
+  private gainSkillXp(agent: Agent, job: Job, base: number): void {
+    if (!job) return;
+    let xp = base;
+    // Bonus mentor : un adulte expérimenté du même métier travaille à proximité.
+    for (const other of this.agents) {
+      if (other === agent) continue;
+      if (other.state.job !== job) continue;
+      if (other.state.activity !== 'working' && other.state.activity !== 'crafting') continue;
+      if ((other.skills.get(job) ?? 0) <= (agent.skills.get(job) ?? 0)) continue;
+      if (distance(other.state.pos, agent.state.pos) > APPRENTICE_PROXIMITY_TILES) continue;
+      xp += APPRENTICE_XP_BONUS;
+      break;
+    }
+    agent.skills.set(job, (agent.skills.get(job) ?? 0) + xp);
   }
 
   /** Crée le plan concret (paie les matériaux, pose le chantier) à partir de l'intention. */
@@ -496,13 +602,15 @@ export class Simulation {
     if (!plan) return;
     if (!this.atPlanStation(agent, plan)) return; // pas encore au bon endroit
 
-    // `progress` accumule des secondes de jeu ; les durées du catalogue sont en s de jeu.
-    plan.progress += dt;
+    // Compétences : le craft/la construction avancent plus vite si l'agent maîtrise son métier.
+    const skillLvl = levelFromXp(agent.skills.get(agent.state.job as Job) ?? 0);
+    plan.progress += dt * skillSpeed(skillLvl);
     if (plan.type === 'craft') {
       const r = RECIPE_BY_ID[plan.recipeId]!;
       if (plan.progress < r.durationSeconds) return;
       add(agent.inventory, r.output.kind, r.output.qty);
       agent.memory.add(this.clock.tick, `J'ai fabriqué : ${r.output.kind}`, 3);
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION);
       agent.plan = null;
     } else {
       const b = BUILD_BY_KIND[plan.kind]!;
@@ -511,6 +619,8 @@ export class Simulation {
       agent.houses++;
       agent.state.houses = agent.houses;
       agent.memory.add(this.clock.tick, `J'ai construit : ${plan.kind}`, 8);
+      // Construction = gros gain d'XP (vise plusieurs niveaux pour un grand chantier).
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION * 3);
       agent.plan = null;
     }
   }
@@ -618,6 +728,68 @@ export class Simulation {
     if (this.rng.chance(0.04)) this.orchestrator.converse(agent, other, this.clock);
   }
 
+  /** Relations sociales avancées (Phase 13).
+   *  - Jalousie : si le/la conjoint(e) a une affinité notablement plus forte avec
+   *    quelqu'un d'autre, l'agent perd de l'affinité envers lui/elle (et gagne de la
+   *    colère via les émotions).
+   *  - Rupture : sous `BREAKUP_AFFINITY`, le couple se brise (souvenir fort + dialogue). */
+  private stepRelations(dt: number): void {
+    if (dt <= 0) return;
+    const now = this.clock.gameTime;
+    for (const a of this.agents) {
+      if (!a.state.partnerId) continue;
+      const partner = this.agents.find((p) => p.state.id === a.state.partnerId);
+      if (!partner) continue;
+      const relToPartner = a.relationships.get(partner.state.id) ?? 0;
+
+      // Cherche le rival potentiel : un autre agent envers qui le partenaire a une
+      // affinité bien supérieure à celle pour `a`.
+      let bestGap = 0;
+      let rival: Agent | null = null;
+      for (const [otherId, rel] of partner.relationships) {
+        if (otherId === a.state.id) continue;
+        const gap = rel - relToPartner;
+        if (gap > bestGap) {
+          bestGap = gap;
+          rival = this.agents.find((x) => x.state.id === otherId) ?? null;
+        }
+      }
+      if (rival && bestGap > JEALOUSY_GAP) {
+        const loss = JEALOUSY_DECAY_PER_SEC * (bestGap - JEALOUSY_GAP) * dt;
+        a.relationships.set(partner.state.id, Math.max(-100, relToPartner - loss));
+        bumpEmotion(a.emotions, a.personality, 'colere', 0.0005 * dt * (bestGap - JEALOUSY_GAP));
+      }
+
+      // Rupture si l'affinité passe sous le seuil.
+      if (relToPartner <= BREAKUP_AFFINITY) {
+        this.breakup(a, partner, now);
+      }
+    }
+  }
+
+  /** Rompt un couple : remet `partnerId` à 0 des deux côtés, choc d'affinité,
+   *  mémoire & dialogue. Marque les deux d'une grosse impulsion de tristesse/colère. */
+  private breakup(a: Agent, b: Agent, now: number): void {
+    a.state.partnerId = 0;
+    b.state.partnerId = 0;
+    const ra = (a.relationships.get(b.state.id) ?? 0) - BREAKUP_AFFINITY_SHOCK;
+    const rb = (b.relationships.get(a.state.id) ?? 0) - BREAKUP_AFFINITY_SHOCK;
+    a.relationships.set(b.state.id, Math.max(-100, ra));
+    b.relationships.set(a.state.id, Math.max(-100, rb));
+    a.memory.add(now, `Je me suis séparé(e) de ${b.state.name}`, 9);
+    b.memory.add(now, `Je me suis séparé(e) de ${a.state.name}`, 9);
+    bumpEmotion(a.emotions, a.personality, 'tristesse', 40);
+    bumpEmotion(b.emotions, b.personality, 'tristesse', 40);
+    bumpEmotion(a.emotions, a.personality, 'colere', 25);
+    bumpEmotion(b.emotions, b.personality, 'colere', 25);
+    this.dialogueQueue.push({
+      speakerId: a.state.id,
+      listenerId: b.state.id,
+      text: `${b.state.name}, c'est fini entre nous.`,
+      voiceProfile: a.state.voiceProfile,
+    });
+  }
+
   /** Deux adultes célibataires de sexe opposé, mutuellement attachés, se mettent en couple. */
   private tryFormCouple(a: Agent, b: Agent): void {
     if (a.state.partnerId || b.state.partnerId) return;
@@ -648,12 +820,26 @@ export class Simulation {
       const age = (now - a.birthGameTime) / YEAR_SECONDS;
       a.state.ageYears = Math.floor(age);
       const stage = lifeStageFor(age);
-      // Passage à l'âge adulte : on attribue un métier et une voix d'adulte.
+      // Apprentissage : l'ado accumule de l'XP dans le métier d'un adulte au travail
+      // qu'il observe à proximité. Le métier dominant deviendra le sien à la majorité.
+      if (isTeen(age)) this.observeMentor(a, dt);
+      // Passage à l'âge adulte : métier hérité du mentorat si possible, sinon par défaut.
       if (a.state.lifeStage === 'enfant' && stage !== 'enfant') {
-        a.state.job = assignJob(a.aspirations, a.personality);
+        a.state.job = a.learnedJob ?? assignJob(a.aspirations, a.personality);
         a.state.voiceProfile = this.voiceFor(a.state.gender, false);
       }
       a.state.lifeStage = stage;
+      // Aîné : énergie plafonnée (la fatigue arrive plus vite après 65 ans).
+      if (stage === 'aine' && a.state.needs.energy > ELDER_ENERGY_CAP) {
+        a.state.needs.energy = ELDER_ENERGY_CAP;
+      }
+
+      // La santé est avancée par sous-étape dans `tick` (granularité fine) ; ici on
+      // ne fait que constater la mort par santé nulle.
+      if (a.health <= HEALTH_DEATH_THRESHOLD) {
+        dead.push(a.state.id);
+        continue;
+      }
 
       // Mort de vieillesse.
       if (age > a.lifespanYears) {
@@ -739,10 +925,21 @@ export class Simulation {
       lifespanYears: this.rng.range(LIFESPAN_MIN, LIFESPAN_MAX),
       parents: [mother.state.id, father.state.id],
       pregnant: null,
+      mentorId: null,
+      learnedJob: null,
+      apprenticeXp: new Map(),
+      health: HEALTH_MAX,
+      illness: null,
+      emotions: makeEmotions(),
+      stress: 0,
+      skills: new Map(),
     };
     this.agents.push(agent);
     mother.memory.add(now, `Naissance de ${name}`, 9);
     father.memory.add(now, `Naissance de ${name}`, 9);
+    // Naissance → grande joie partagée chez les parents.
+    bumpEmotion(mother.emotions, mother.personality, 'joie', 50);
+    bumpEmotion(father.emotions, father.personality, 'joie', 50);
     this.dialogueQueue.push({
       speakerId: mother.state.id,
       listenerId: 0,
@@ -751,8 +948,10 @@ export class Simulation {
     });
   }
 
-  /** Retire des agents morts : libère les conjoints et transmet leurs biens (héritage). */
+  /** Retire des agents morts : libère les conjoints, transmet les biens (héritage),
+   *  et inscrit un « souvenir partagé » de forte importance chez les villageois proches. */
   private removeAgents(ids: number[]): void {
+    const now = this.clock.gameTime;
     for (const id of ids) {
       const idx = this.agents.findIndex((a) => a.state.id === id);
       if (idx < 0) continue;
@@ -761,11 +960,184 @@ export class Simulation {
         const p = this.agents.find((x) => x.state.id === a.state.partnerId);
         if (p) p.state.partnerId = 0;
       }
+      // Sépulture : tout villageois proche garde un souvenir marquant (importance 9).
+      // Parents/conjoint/enfants obtiennent un souvenir maximal (10).
+      const kin = new Set<number>([a.state.partnerId, ...(a.parents ?? [])].filter((x) => x > 0));
+      for (const x of this.agents) {
+        if (x.state.id === id || ids.includes(x.state.id)) continue;
+        if (x.parents?.includes(id)) kin.add(x.state.id);
+        const close = distance(x.state.pos, a.state.pos) <= FUNERAL_MEMORY_RADIUS;
+        if (close || kin.has(x.state.id)) {
+          const intensity = kin.has(x.state.id) ? 10 : 9;
+          x.memory.add(now, `${a.state.name} est mort(e) à ${a.state.ageYears} ans`, intensity);
+          // Deuil : tristesse + peur (impulsion massive si proche, modérée sinon).
+          bumpEmotion(x.emotions, x.personality, 'tristesse', kin.has(x.state.id) ? 80 : 35);
+          bumpEmotion(x.emotions, x.personality, 'peur', kin.has(x.state.id) ? 30 : 12);
+        }
+      }
+      if (kin.size > 0) {
+        // Une annonce funéraire (dialogue collectif visible côté joueur).
+        const speaker = this.agents.find((x) => kin.has(x.state.id));
+        if (speaker) {
+          this.dialogueQueue.push({
+            speakerId: speaker.state.id,
+            listenerId: 0,
+            text: `Nous avons perdu ${a.state.name}. Repose en paix.`,
+            voiceProfile: speaker.state.voiceProfile,
+          });
+        }
+      }
       // Héritage : un enfant vivant récupère les biens, sinon ils deviennent publics.
       const heir = this.agents.find((x) => x.parents?.includes(id) && !ids.includes(x.state.id));
       this.world.reassignOwner(id, heir ? heir.state.id : 0);
       this.agents.splice(idx, 1);
     }
+  }
+
+  /** Avance la santé de tous les agents d'une sous-étape (granularité fine). */
+  private stepHealthAll(dt: number): void {
+    if (dt <= 0) return;
+    for (const a of this.agents) this.stepHealth(a, dt);
+  }
+
+  /** Décroissance d'humeurs + impulsions liées au contexte courant (Phase 12).
+   *  Une fois par sous-étape : besoins critiques → peur/tristesse/colère, maladie en
+   *  cours → tristesse/peur, stress monte sous la faim chronique et le manque d'énergie. */
+  private stepEmotionsAll(dt: number): void {
+    if (dt <= 0) return;
+    for (const a of this.agents) {
+      decayEmotions(a.emotions, a.personality, dt);
+      const n = a.state.needs;
+      // Faim aiguë : irritation + tristesse persistantes.
+      if (n.hunger < 25) {
+        bumpEmotion(a.emotions, a.personality, 'colere', 0.001 * dt);
+        bumpEmotion(a.emotions, a.personality, 'tristesse', 0.0008 * dt);
+        a.stress = Math.min(100, a.stress + 0.0006 * dt);
+      }
+      // Épuisement : peur diffuse, stress monte.
+      if (n.energy < 20) {
+        bumpEmotion(a.emotions, a.personality, 'peur', 0.0006 * dt);
+        a.stress = Math.min(100, a.stress + 0.0005 * dt);
+      }
+      // Maladie : tristesse + peur (intensité modulée par la fragilité).
+      if (a.illness) {
+        bumpEmotion(a.emotions, a.personality, 'tristesse', 0.0007 * dt);
+        bumpEmotion(a.emotions, a.personality, 'peur', 0.0005 * dt);
+      }
+      // Repli vers le calme quand tout va bien.
+      if (n.hunger > 70 && n.energy > 60 && !a.illness) {
+        a.stress = Math.max(0, a.stress - 0.0003 * dt);
+      }
+    }
+  }
+
+  /** Santé (Phase 10) : effet hygiène, progression de la maladie, contagion, guérison.
+   *  Joue dans `stepLife` une fois par tick réel — `dt` = temps de jeu de ce tick.
+   *  À très haute vitesse (dt couvrant plusieurs jours), les probabilités utilisent
+   *  l'exponentielle (1 - e^{-rate·dt}) pour saturer à 1, et les dégâts d'une maladie
+   *  sont bornés par le temps réellement « actif » dans la fenêtre — sinon un seul tick
+   *  rapide pourrait tuer en une fois. */
+  private stepHealth(a: Agent, dt: number): void {
+    if (a.health <= HEALTH_DEATH_THRESHOLD) return; // déjà mort, ni récupération ni guérison
+    const fragile = a.state.lifeStage === 'enfant' || a.state.lifeStage === 'aine' ? FRAGILE_FACTOR : 1;
+    const now = this.clock.gameTime;
+
+    // 1) Effet de l'hygiène basse (dégradation lente, indépendante de la maladie).
+    if (a.state.needs.hygiene < HYGIENE_HEALTH_THRESHOLD) {
+      a.health -= HEALTH_DECAY_FROM_HYGIENE_PER_SEC * dt * fragile;
+    }
+
+    // 2) Maladie en cours : incubation → contagion, dégâts (bornés), fin de maladie.
+    if (a.illness) {
+      const elapsedStart = Math.max(0, now - dt - a.illness.sinceGameTime);
+      const elapsedEnd = now - a.illness.sinceGameTime;
+      if (!a.illness.contagious && elapsedEnd >= ILLNESS_INCUBATION_SECONDS) {
+        a.illness.contagious = true;
+        a.memory.add(now, `Je me sens malade (${a.illness.kind})`, 5);
+      }
+      // Dégâts : uniquement sur la portion de dt comprise dans la durée de la maladie.
+      if (elapsedStart < a.illness.durationSeconds) {
+        const activeDt = Math.min(dt, a.illness.durationSeconds - elapsedStart);
+        a.health -= ILLNESS_DAMAGE_PER_SEC * activeDt * fragile;
+      }
+      if (elapsedEnd >= a.illness.durationSeconds && a.state.needs.energy > 40 && a.state.needs.hunger > 40) {
+        a.memory.add(now, `Je suis guéri(e) de ${a.illness.kind}`, 4);
+        a.illness = null;
+        a.health = Math.min(HEALTH_MAX, a.health + 10);
+      } else if (a.illness.contagious) {
+        this.spreadIllness(a, dt);
+      }
+    } else {
+      // 3) Apparition spontanée (probabilité bornée par exp pour les longs dt).
+      const hygieneFactor = a.state.needs.hygiene < HYGIENE_HEALTH_THRESHOLD ? 2 : 1;
+      const rate = (ILLNESS_ONSET_PER_YEAR * hygieneFactor * fragile) / YEAR_SECONDS;
+      const prob = 1 - Math.exp(-rate * dt);
+      if (this.rng.chance(prob)) {
+        a.illness = {
+          kind: this.rng.pick(['rhume', 'fièvre', 'maux d\'estomac']),
+          sinceGameTime: now,
+          durationSeconds: ILLNESS_DURATION_SECONDS * (0.7 + this.rng.next() * 0.6),
+          contagious: false,
+        };
+      }
+    }
+
+    // 4) Récupération naturelle si pas malade et hygiène correcte.
+    if (!a.illness && a.state.needs.hygiene >= HYGIENE_HEALTH_THRESHOLD && a.health < HEALTH_MAX) {
+      a.health = Math.min(HEALTH_MAX, a.health + HEALTH_RECOVERY_PER_SEC * dt);
+    }
+  }
+
+  /** Contagion : chaque agent sain à portée a une probabilité d'être infecté. */
+  private spreadIllness(source: Agent, dt: number): void {
+    if (!source.illness) return;
+    const p = 1 - Math.exp(-CONTAGION_RATE_PER_SEC * dt);
+    for (const other of this.agents) {
+      if (other === source || other.illness) continue;
+      if (distance(other.state.pos, source.state.pos) > CONTAGION_RADIUS) continue;
+      if (this.rng.chance(p)) {
+        other.illness = {
+          kind: source.illness.kind,
+          sinceGameTime: this.clock.gameTime,
+          durationSeconds: ILLNESS_DURATION_SECONDS * (0.7 + this.rng.next() * 0.6),
+          contagious: false,
+        };
+      }
+    }
+  }
+
+  /** Apprentissage : si un adulte travaille à proximité d'un ado, l'ado gagne du temps
+   *  d'observation dans le métier de l'adulte. Le métier le plus observé devient le
+   *  sien au passage à la majorité (cf. `stepLife`). */
+  private observeMentor(teen: Agent, dt: number): void {
+    let bestMentor: Agent | null = null;
+    let bestDist = APPRENTICE_PROXIMITY_TILES + 0.001;
+    for (const adult of this.agents) {
+      if (adult === teen) continue;
+      if (adult.state.lifeStage !== 'adulte' && adult.state.lifeStage !== 'aine') continue;
+      if (adult.state.activity !== 'working' && adult.state.activity !== 'crafting') continue;
+      if (!adult.state.job) continue;
+      const d = distance(teen.state.pos, adult.state.pos);
+      if (d < bestDist) {
+        bestDist = d;
+        bestMentor = adult;
+      }
+    }
+    if (!bestMentor) return;
+    const job = bestMentor.state.job as Job;
+    const xp = (teen.apprenticeXp.get(job) ?? 0) + dt;
+    teen.apprenticeXp.set(job, xp);
+    teen.mentorId = bestMentor.state.id;
+    // Élit le métier dominant à chaque tick (peu coûteux, peu de métiers).
+    let topJob: Job = job;
+    let topXp = xp;
+    for (const [k, v] of teen.apprenticeXp) {
+      if (v > topXp) {
+        topXp = v;
+        topJob = k;
+      }
+    }
+    teen.learnedJob = topJob;
   }
 
   private drainDialogues(): DialogueEvent[] {
@@ -793,6 +1165,8 @@ export class Simulation {
       gameTime: this.clock.gameTime,
       dayCount: this.clock.dayCount,
       date: this.clock.date,
+      season: this.clock.season,
+      weather: { ...this.weather },
       agents: this.agents.map((a) => ({
         ...a.state,
         pos: { x: a.state.pos.x, y: a.state.pos.y },

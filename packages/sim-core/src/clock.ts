@@ -1,4 +1,4 @@
-import type { GameDate } from '@game/protocol';
+import type { GameDate, Season } from '@game/protocol';
 
 /** Une journée de jeu = 24 h = 86 400 secondes de jeu. Base de TOUTES les durées du monde. */
 export const GAME_SECONDS_PER_DAY = 86_400;
@@ -26,8 +26,11 @@ export class SimClock {
     readonly ticksPerSecond = 15,
     /** Heure de départ (0..24). */
     startHour = 8,
+    /** Jour de l'année (0..364) à utiliser comme départ — par défaut début avril
+     *  (printemps), pour que les cultures puissent démarrer immédiatement. */
+    startDayOfYear = 90,
   ) {
-    this.gameTime = (startHour / 24) * GAME_SECONDS_PER_DAY;
+    this.gameTime = (startDayOfYear + startHour / 24) * GAME_SECONDS_PER_DAY;
   }
 
   /**
@@ -61,6 +64,15 @@ export class SimClock {
       month++;
     }
     return { year, month: month + 1, day: doy + 1 };
+  }
+
+  /** Saison courante, déduite du mois (hémisphère nord). */
+  get season(): Season {
+    const m = this.date.month;
+    if (m === 12 || m <= 2) return 'hiver';
+    if (m <= 5) return 'printemps';
+    if (m <= 8) return 'ete';
+    return 'automne';
   }
 
   get isNight(): boolean {

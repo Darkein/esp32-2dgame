@@ -1,6 +1,6 @@
-import type { ActivityKind, AgentState, LifeStage, Needs, Vec2 } from '@game/protocol';
+import type { ActivityKind, AgentState, Emotions, LifeStage, Needs, Vec2 } from '@game/protocol';
 import type { Job } from './catalog';
-import { ADULT_AGE, ELDER_AGE } from './catalog';
+import { ADULT_AGE, ELDER_AGE, TEEN_AGE } from './catalog';
 import type { MemoryStream } from './ai/memory';
 
 /** Projet en cours d'un agent (fabrication ou construction). Le travail agricole
@@ -25,6 +25,18 @@ export interface Pregnancy {
   sinceGameTime: number;
   /** Id du père. */
   fatherId: number;
+}
+
+/** Maladie en cours sur un agent (Phase 10). */
+export interface Illness {
+  /** Étiquette interne (rhume, fièvre…). */
+  kind: string;
+  /** Temps de jeu (s) du début de l'infection. */
+  sinceGameTime: number;
+  /** Durée prévue (s) après laquelle la guérison est tentée. */
+  durationSeconds: number;
+  /** Vrai après la fin de l'incubation (l'agent peut contaminer autrui). */
+  contagious: boolean;
 }
 
 /** Données internes d'un agent (le wire `AgentState` n'en expose qu'une partie). */
@@ -71,6 +83,22 @@ export interface Agent {
   parents: [number, number] | null;
   /** Grossesse en cours, ou null. */
   pregnant: Pregnancy | null;
+  /** Mentor observé pendant l'adolescence (Phase 9). Détermine le métier à l'âge adulte. */
+  mentorId: number | null;
+  /** Métier appris auprès d'un mentor adolescent. `null` = pas d'apprentissage encore acquis. */
+  learnedJob: Job | null;
+  /** Temps (s de jeu) cumulé en observation d'un mentor au travail, par métier. */
+  apprenticeXp: Map<Job, number>;
+  /** Santé courante 0..HEALTH_MAX. 0 = mort (Phase 10). */
+  health: number;
+  /** Maladie en cours, ou null. */
+  illness: Illness | null;
+  /** Humeurs courantes 0..100 (Phase 12). */
+  emotions: Emotions;
+  /** Stress cumulé 0..100 (Phase 12). Au-dessus de 80 → fragilité et dialogue altéré. */
+  stress: number;
+  /** XP par métier (Phase 14). Le niveau dérivé via `levelFromXp` accélère le travail. */
+  skills: Map<Job, number>;
 }
 
 /** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */
@@ -94,6 +122,11 @@ export function lifeStageFor(ageYears: number): LifeStage {
   if (ageYears < ADULT_AGE) return 'enfant';
   if (ageYears < ELDER_AGE) return 'adulte';
   return 'aine';
+}
+
+/** Vrai si l'agent est en âge d'apprendre un métier (adolescence, < majorité). */
+export function isTeen(ageYears: number): boolean {
+  return ageYears >= TEEN_AGE && ageYears < ADULT_AGE;
 }
 
 export function distance(a: Vec2, b: Vec2): number {

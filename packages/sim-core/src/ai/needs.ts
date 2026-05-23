@@ -27,6 +27,8 @@ const GAIN: Record<ActivityKind, Partial<Needs>> = {
   talking: { social: 100 / (1 * H), fun: 100 / (3 * H) },
   socializing: { social: 100 / (45 * 60), fun: 100 / (2.5 * H) },
   trading: { social: 100 / (6 * H) },
+  // Lavage au puits / bord d'eau : ~10 min de jeu pour repasser de 0 à 100 d'hygiène.
+  washing: { hygiene: 100 / (10 * 60) + DECAY.hygiene },
 };
 
 function clamp(v: number): number {
