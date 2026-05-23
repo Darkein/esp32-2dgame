@@ -15,6 +15,7 @@ import { TileChunk as FbTileChunk } from './gen/game/wire/tile-chunk';
 import { DialogueEvent as FbDialogueEvent } from './gen/game/wire/dialogue-event';
 import { Hello as FbHello } from './gen/game/wire/hello';
 import { ChatToAgent as FbChatToAgent } from './gen/game/wire/chat-to-agent';
+import { SetSpeed as FbSetSpeed } from './gen/game/wire/set-speed';
 import { Vec2 as FbVec2 } from './gen/game/wire/vec2';
 import { Needs as FbNeeds } from './gen/game/wire/needs';
 import type {
@@ -23,7 +24,9 @@ import type {
   BuildingState,
   ClientMessage,
   DialogueEvent,
+  Gender,
   ItemState,
+  LifeStage,
   ServerMessage,
   TileType,
   WorldSnapshot,
@@ -46,6 +49,10 @@ const ACT_FROM_FB: ActivityKind[] = [
   'idle', 'walking', 'sleeping', 'eating', 'working', 'crafting', 'talking', 'socializing',
   'trading',
 ];
+const GENDER_TO_FB: Record<Gender, number> = { M: 0, F: 1 };
+const GENDER_FROM_FB: Gender[] = ['M', 'F'];
+const STAGE_TO_FB: Record<LifeStage, number> = { enfant: 0, adulte: 1, aine: 2 };
+const STAGE_FROM_FB: LifeStage[] = ['enfant', 'adulte', 'aine'];
 
 // --- Encodage --------------------------------------------------------------
 
@@ -76,6 +83,10 @@ function encodeAgent(b: flatbuffers.Builder, a: AgentState): number {
   FbAgentState.addHouses(b, a.houses);
   FbAgentState.addJob(b, jobOff);
   FbAgentState.addCoins(b, a.coins);
+  FbAgentState.addGender(b, GENDER_TO_FB[a.gender]);
+  FbAgentState.addAgeYears(b, a.ageYears);
+  FbAgentState.addLifeStage(b, STAGE_TO_FB[a.lifeStage]);
+  FbAgentState.addPartnerId(b, a.partnerId);
   return FbAgentState.endAgentState(b);
 }
 
@@ -110,6 +121,11 @@ function encodeSnapshot(b: flatbuffers.Builder, s: WorldSnapshot): number {
   FbWorldSnapshot.startWorldSnapshot(b);
   FbWorldSnapshot.addTick(b, BigInt(Math.trunc(s.tick)));
   FbWorldSnapshot.addTimeOfDay(b, s.timeOfDay);
+  FbWorldSnapshot.addGameTime(b, s.gameTime);
+  FbWorldSnapshot.addDayCount(b, s.dayCount);
+  FbWorldSnapshot.addDateYear(b, s.date.year);
+  FbWorldSnapshot.addDateMonth(b, s.date.month);
+  FbWorldSnapshot.addDateDay(b, s.date.day);
   FbWorldSnapshot.addAgents(b, agentsVec);
   FbWorldSnapshot.addItems(b, itemsVec);
   FbWorldSnapshot.addBuildings(b, buildingsVec);
@@ -146,10 +162,13 @@ export function encodeClientMessage(msg: ClientMessage): Uint8Array {
     const kindOff = b.createString(msg.clientKind);
     payloadType = FbClientPayload.Hello;
     payloadOff = FbHello.createHello(b, kindOff, msg.viewW, msg.viewH);
-  } else {
+  } else if (msg.t === 'chat') {
     const textOff = b.createString(msg.text);
     payloadType = FbClientPayload.ChatToAgent;
     payloadOff = FbChatToAgent.createChatToAgent(b, msg.agentId, textOff, msg.isOrder);
+  } else {
+    payloadType = FbClientPayload.SetSpeed;
+    payloadOff = FbSetSpeed.createSetSpeed(b, msg.scale);
   }
   const root = FbClientMessage.createClientMessage(b, payloadType, payloadOff);
   b.finish(root);
@@ -179,6 +198,10 @@ function decodeAgent(a: FbAgentState): AgentState {
     houses: a.houses(),
     job: a.job() ?? '',
     coins: a.coins(),
+    gender: GENDER_FROM_FB[a.gender()] ?? 'M',
+    ageYears: a.ageYears(),
+    lifeStage: STAGE_FROM_FB[a.lifeStage()] ?? 'adulte',
+    partnerId: a.partnerId(),
   };
 }
 
@@ -200,6 +223,9 @@ function decodeSnapshot(ws: FbWorldSnapshot): WorldSnapshot {
   const snapshot: WorldSnapshot = {
     tick: Number(ws.tick()),
     timeOfDay: ws.timeOfDay(),
+    gameTime: ws.gameTime(),
+    dayCount: ws.dayCount(),
+    date: { year: ws.dateYear(), month: ws.dateMonth(), day: ws.dateDay() },
     agents,
     items,
     buildings,
@@ -248,6 +274,10 @@ export function decodeClientMessage(buf: Uint8Array): ClientMessage | null {
     case FbClientPayload.ChatToAgent: {
       const c = msg.payload(new FbChatToAgent()) as FbChatToAgent;
       return { t: 'chat', agentId: c.agentId(), text: c.text() ?? '', isOrder: c.isOrder() };
+    }
+    case FbClientPayload.SetSpeed: {
+      const s = msg.payload(new FbSetSpeed()) as FbSetSpeed;
+      return { t: 'speed', scale: s.scale() };
     }
     default:
       return null;

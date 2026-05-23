@@ -50,6 +50,7 @@ async function main() {
       try {
         const msg = decodeClientMessage(toBytes(raw));
         if (msg?.t === 'chat') sim.handleChat(msg.agentId, msg.text, msg.isOrder);
+        else if (msg?.t === 'speed') sim.setSpeed(msg.scale);
       } catch {
         /* message invalide ignoré */
       }

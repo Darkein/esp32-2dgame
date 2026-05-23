@@ -64,6 +64,31 @@
       background: #4a5266;
     }
 
+    #speed {
+      display: flex;
+      gap: 4px;
+      padding: 4px 6px;
+      align-items: center;
+    }
+
+    #speed button {
+      padding: 3px 7px;
+      font-size: 12px;
+      background: transparent;
+      border: 1px solid transparent;
+    }
+
+    #speed button:hover {
+      background: #4a5266;
+    }
+
+    #speed button.active {
+      background: #06d6a0;
+      border-color: #06d6a0;
+      color: #06281f;
+      font-weight: 600;
+    }
+
     #panel {
       top: 8px;
       right: 8px;
@@ -236,12 +261,22 @@
   <div id="app"></div>
   <div id="topbar" class="hud">
     <div class="pill" id="clock">--:--</div>
+    <div class="pill" id="date">—</div>
+    <div class="pill" id="speed">
+      <button data-speed="0" title="Pause">⏸</button>
+      <button data-speed="1" class="active">1×</button>
+      <button data-speed="5">5×</button>
+      <button data-speed="20">20×</button>
+      <button data-speed="100">100×</button>
+      <button data-speed="1000">1000×</button>
+    </div>
     <div class="pill" id="mode">…</div>
     <button id="voiceBtn">🔊 Voix : off</button>
   </div>
   <div id="panel" class="hud">
     <h2 id="pname">—</h2>
     <div id="pactivity" style="opacity:.8"></div>
+    <div id="plife" style="opacity:.8; font-size:12px; margin:2px 0"></div>
     <div id="goal"></div>
     <div id="inv" style="opacity:.85; margin:4px 0; font-size:12px"></div>
     <div id="needs"></div>

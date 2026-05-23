@@ -34,5 +34,7 @@ self.onmessage = (ev: MessageEvent) => {
     return;
   }
 
-  if (sim && data.t === 'chat') sim.handleChat(data.agentId, data.text, data.isOrder);
+  if (!sim) return;
+  if (data.t === 'chat') sim.handleChat(data.agentId, data.text, data.isOrder);
+  else if (data.t === 'speed') sim.setSpeed(data.scale);
 };

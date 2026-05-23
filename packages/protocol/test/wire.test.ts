@@ -10,6 +10,9 @@ import type { ClientMessage, ServerMessage, WorldSnapshot } from '../src/types';
 const snapshot: WorldSnapshot = {
   tick: 12345,
   timeOfDay: 13.5,
+  gameTime: 1234567.5,
+  dayCount: 14,
+  date: { year: 1, month: 1, day: 15 },
   agents: [
     {
       id: 1,
@@ -27,6 +30,10 @@ const snapshot: WorldSnapshot = {
       houses: 1,
       job: 'bucheron',
       coins: 42,
+      gender: 'F',
+      ageYears: 27,
+      lifeStage: 'adulte',
+      partnerId: 3,
     },
   ],
   items: [{ id: 1000, kind: 'pomme', pos: { x: 1, y: 2 } }],
@@ -41,10 +48,17 @@ describe('protocole binaire FlatBuffers', () => {
     const s = (decoded as { t: 'snapshot'; snapshot: WorldSnapshot }).snapshot;
     expect(s.tick).toBe(12345);
     expect(s.timeOfDay).toBeCloseTo(13.5, 3);
+    expect(s.gameTime).toBeCloseTo(1234567.5, 1);
+    expect(s.dayCount).toBe(14);
+    expect(s.date).toEqual({ year: 1, month: 1, day: 15 });
     expect(s.agents).toHaveLength(1);
     const a = s.agents[0]!;
     expect(a.name).toBe('Camille');
     expect(a.activity).toBe('working');
+    expect(a.gender).toBe('F');
+    expect(a.ageYears).toBe(27);
+    expect(a.lifeStage).toBe('adulte');
+    expect(a.partnerId).toBe(3);
     expect(a.pos.x).toBeCloseTo(3.25, 4);
     expect(a.needs.energy).toBeCloseTo(80, 3);
     expect(a.inventory).toEqual([
@@ -74,5 +88,8 @@ describe('protocole binaire FlatBuffers', () => {
 
     const chat: ClientMessage = { t: 'chat', agentId: 3, text: 'Va dormir !', isOrder: true };
     expect(decodeClientMessage(encodeClientMessage(chat))).toEqual(chat);
+
+    const speed: ClientMessage = { t: 'speed', scale: 20 };
+    expect(decodeClientMessage(encodeClientMessage(speed))).toEqual(speed);
   });
 });

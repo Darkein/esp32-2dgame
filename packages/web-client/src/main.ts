@@ -19,6 +19,11 @@ const ACTIVITY_LABEL: Record<string, string> = {
   working: 'travaille', crafting: 'bricole', talking: 'discute', socializing: 'socialise',
   trading: 'au marché',
 };
+const LIFE_STAGE_LABEL: Record<string, string> = { enfant: 'enfant', adulte: 'adulte', aine: 'aîné·e' };
+const MONTHS = [
+  'janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin',
+  'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.',
+];
 
 async function main() {
   const renderer = new Renderer();
@@ -31,7 +36,16 @@ async function main() {
   $('mode').textContent = transport.label;
 
   let selectedId: number | null = null;
+  let lastAgents: AgentState[] = [];
   const names = new Map<number, string>();
+
+  /** Texte « sexe • âge • étape • conjoint » du panneau agent. */
+  function describeLife(a: AgentState): string {
+    const sym = a.gender === 'F' ? '♀' : '♂';
+    const parts = [`${sym} ${a.ageYears} ans`, LIFE_STAGE_LABEL[a.lifeStage] ?? a.lifeStage];
+    if (a.partnerId) parts.push(`💞 ${names.get(a.partnerId) ?? `IA ${a.partnerId}`}`);
+    return parts.join('  •  ');
+  }
 
   // Construit le panneau de besoins une seule fois.
   const needsEl = $('needs');
@@ -53,6 +67,7 @@ async function main() {
   function refreshPanel(a: AgentState) {
     $('pname').textContent = a.job ? `${a.name} — ${a.job}` : a.name;
     $('pactivity').textContent = `Activité : ${ACTIVITY_LABEL[a.activity] ?? a.activity}`;
+    $('plife').textContent = describeLife(a);
     $('goal').textContent = a.goal ? `« ${a.goal} »` : '';
     const inv = a.inventory.map((s) => `${s.kind}×${s.count}`).join(', ');
     $('inv').textContent = `🎒 ${inv || 'vide'}  •  💰 ${a.coins}${a.houses ? `  •  🏠 ${a.houses}` : ''}`;
@@ -67,14 +82,23 @@ async function main() {
   renderer.onSelect = showAgent;
 
   transport.onSnapshot((s: WorldSnapshot) => {
+    lastAgents = s.agents;
     for (const a of s.agents) names.set(a.id, a.name);
     renderer.apply(s);
     const h = Math.floor(s.timeOfDay);
     const m = Math.floor((s.timeOfDay - h) * 60);
     $('clock').textContent = `🕒 ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    if (s.date) {
+      $('date').textContent = `📅 ${s.date.day} ${MONTHS[s.date.month - 1] ?? ''} an ${s.date.year}`;
+    }
     if (selectedId != null) {
       const sel = s.agents.find((a) => a.id === selectedId);
       if (sel) refreshPanel(sel);
+      else {
+        // L'agent sélectionné est mort/disparu : on referme le panneau.
+        selectedId = null;
+        $('panel').style.display = 'none';
+      }
     }
   });
 
@@ -110,6 +134,17 @@ async function main() {
     const on = voice.toggle();
     $('voiceBtn').textContent = `🔊 Voix : ${on ? 'on' : 'off'}`;
   });
+
+  // Contrôle de la vitesse du temps (pause + paliers d'accélération).
+  const speedBtns = Array.from($('speed').querySelectorAll<HTMLButtonElement>('button'));
+  for (const btn of speedBtns) {
+    btn.addEventListener('click', () => {
+      const scale = Number(btn.dataset.speed);
+      transport.sendSpeed(scale);
+      renderer.setSpeed(scale); // l'interpolation visuelle suit la vitesse
+      for (const b of speedBtns) b.classList.toggle('active', b === btn);
+    });
+  }
 
   transport.start();
 }

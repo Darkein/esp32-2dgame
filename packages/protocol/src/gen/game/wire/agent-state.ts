@@ -99,8 +99,28 @@ coins():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+gender():number {
+  const offset = this.bb!.__offset(this.bb_pos, 28);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
+ageYears():number {
+  const offset = this.bb!.__offset(this.bb_pos, 30);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+lifeStage():number {
+  const offset = this.bb!.__offset(this.bb_pos, 32);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
+partnerId():number {
+  const offset = this.bb!.__offset(this.bb_pos, 34);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
 static startAgentState(builder:flatbuffers.Builder) {
-  builder.startObject(12);
+  builder.startObject(16);
 }
 
 static addId(builder:flatbuffers.Builder, id:number) {
@@ -161,6 +181,22 @@ static addJob(builder:flatbuffers.Builder, jobOffset:flatbuffers.Offset) {
 
 static addCoins(builder:flatbuffers.Builder, coins:number) {
   builder.addFieldInt32(11, coins, 0);
+}
+
+static addGender(builder:flatbuffers.Builder, gender:number) {
+  builder.addFieldInt8(12, gender, 0);
+}
+
+static addAgeYears(builder:flatbuffers.Builder, ageYears:number) {
+  builder.addFieldInt32(13, ageYears, 0);
+}
+
+static addLifeStage(builder:flatbuffers.Builder, lifeStage:number) {
+  builder.addFieldInt8(14, lifeStage, 0);
+}
+
+static addPartnerId(builder:flatbuffers.Builder, partnerId:number) {
+  builder.addFieldInt32(15, partnerId, 0);
 }
 
 static endAgentState(builder:flatbuffers.Builder):flatbuffers.Offset {

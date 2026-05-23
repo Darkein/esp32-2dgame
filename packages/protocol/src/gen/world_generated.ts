@@ -13,6 +13,7 @@ export { ItemState } from './game/wire/item-state';
 export { Needs } from './game/wire/needs';
 export { ServerMessage } from './game/wire/server-message';
 export { ServerPayload, unionToServerPayload, unionListToServerPayload } from './game/wire/server-payload';
+export { SetSpeed } from './game/wire/set-speed';
 export { TileChunk } from './game/wire/tile-chunk';
 export { Vec2 } from './game/wire/vec2';
 export { WorldSnapshot } from './game/wire/world-snapshot';

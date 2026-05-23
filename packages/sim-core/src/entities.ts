@@ -1,5 +1,6 @@
-import type { ActivityKind, AgentState, Needs, Vec2 } from '@game/protocol';
+import type { ActivityKind, AgentState, LifeStage, Needs, Vec2 } from '@game/protocol';
 import type { Job } from './catalog';
+import { ADULT_AGE, ELDER_AGE } from './catalog';
 import type { MemoryStream } from './ai/memory';
 
 /** Projet en cours d'un agent (fabrication ou construction). Le travail agricole
@@ -18,6 +19,14 @@ export interface Personality {
   industriousness: number;
 }
 
+/** Grossesse en cours (femmes uniquement). */
+export interface Pregnancy {
+  /** Temps de jeu (secondes) du début de la grossesse. */
+  sinceGameTime: number;
+  /** Id du père. */
+  fatherId: number;
+}
+
 /** Données internes d'un agent (le wire `AgentState` n'en expose qu'une partie). */
 export interface Agent {
   state: AgentState;
@@ -29,25 +38,33 @@ export interface Agent {
   target: Vec2 | null;
   /** Activité à exécuter une fois la cible atteinte. */
   intent: ActivityKind;
-  /** Tick jusqu'auquel la décision courante tient (re-décision ensuite). */
-  actionUntilTick: number;
+  /** Temps de jeu (s) jusqu'auquel la décision courante tient (re-décision ensuite). */
+  actionUntilGameTime: number;
   /** Relations : id d'agent -> affinité (-100..100). */
   relationships: Map<number, number>;
   memory: MemoryStream;
-  /** Anti-rebond : prochain tick où une décision LLM peut être relancée. */
+  /** Anti-rebond : prochain tick (réel) où une décision LLM peut être relancée. */
   nextThinkTick: number;
   /** Vrai pendant qu'une requête LLM est en vol (évite les appels concurrents). */
   thinking: boolean;
-  /** Tick jusqu'auquel l'agent « parle » (réplique affichée). */
+  /** Tick (réel) jusqu'auquel l'agent « parle » (réplique affichée). */
   sayingUntilTick: number;
   /** Ressources brutes + objets craftés portés. */
   inventory: Map<string, number>;
   /** Bâtiments construits par l'agent. */
   houses: number;
-  /** Prochain tick autorisé pour une action de récolte/craft (cadence). */
-  nextGatherTick: number;
+  /** Temps de jeu (s) autorisant la prochaine action de récolte/craft (cadence). */
+  nextGatherGameTime: number;
   /** Projet courant (craft/construction/agriculture), null si aucun. */
   plan: ActivePlan | null;
+  /** Temps de jeu (s) de naissance (peut être négatif pour la population initiale). */
+  birthGameTime: number;
+  /** Espérance de vie de l'agent, en années de jeu. */
+  lifespanYears: number;
+  /** Ids des parents biologiques, ou null (population initiale / nés hors simulation). */
+  parents: [number, number] | null;
+  /** Grossesse en cours, ou null. */
+  pregnant: Pregnancy | null;
 }
 
 /** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */
@@ -64,6 +81,13 @@ export function assignJob(aspirations: string[], p: Personality): Job {
 
 export function makeNeeds(partial?: Partial<Needs>): Needs {
   return { energy: 80, hunger: 80, social: 70, hygiene: 80, fun: 70, ...partial };
+}
+
+/** Étape de vie déduite de l'âge (années de jeu). */
+export function lifeStageFor(ageYears: number): LifeStage {
+  if (ageYears < ADULT_AGE) return 'enfant';
+  if (ageYears < ELDER_AGE) return 'adulte';
+  return 'aine';
 }
 
 export function distance(a: Vec2, b: Vec2): number {

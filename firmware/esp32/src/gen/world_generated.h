@@ -50,6 +50,9 @@ struct HelloBuilder;
 struct ChatToAgent;
 struct ChatToAgentBuilder;
 
+struct SetSpeed;
+struct SetSpeedBuilder;
+
 struct ServerMessage;
 struct ServerMessageBuilder;
 
@@ -220,31 +223,34 @@ enum ClientPayload : uint8_t {
   ClientPayload_NONE = 0,
   ClientPayload_Hello = 1,
   ClientPayload_ChatToAgent = 2,
+  ClientPayload_SetSpeed = 3,
   ClientPayload_MIN = ClientPayload_NONE,
-  ClientPayload_MAX = ClientPayload_ChatToAgent
+  ClientPayload_MAX = ClientPayload_SetSpeed
 };
 
-inline const ClientPayload (&EnumValuesClientPayload())[3] {
+inline const ClientPayload (&EnumValuesClientPayload())[4] {
   static const ClientPayload values[] = {
     ClientPayload_NONE,
     ClientPayload_Hello,
-    ClientPayload_ChatToAgent
+    ClientPayload_ChatToAgent,
+    ClientPayload_SetSpeed
   };
   return values;
 }
 
 inline const char * const *EnumNamesClientPayload() {
-  static const char * const names[4] = {
+  static const char * const names[5] = {
     "NONE",
     "Hello",
     "ChatToAgent",
+    "SetSpeed",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameClientPayload(ClientPayload e) {
-  if (flatbuffers::IsOutRange(e, ClientPayload_NONE, ClientPayload_ChatToAgent)) return "";
+  if (flatbuffers::IsOutRange(e, ClientPayload_NONE, ClientPayload_SetSpeed)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesClientPayload()[index];
 }
@@ -259,6 +265,10 @@ template<> struct ClientPayloadTraits<game::wire::Hello> {
 
 template<> struct ClientPayloadTraits<game::wire::ChatToAgent> {
   static const ClientPayload enum_value = ClientPayload_ChatToAgent;
+};
+
+template<> struct ClientPayloadTraits<game::wire::SetSpeed> {
+  static const ClientPayload enum_value = ClientPayload_SetSpeed;
 };
 
 bool VerifyClientPayload(flatbuffers::Verifier &verifier, const void *obj, ClientPayload type);
@@ -405,7 +415,11 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_INVENTORY = 20,
     VT_HOUSES = 22,
     VT_JOB = 24,
-    VT_COINS = 26
+    VT_COINS = 26,
+    VT_GENDER = 28,
+    VT_AGE_YEARS = 30,
+    VT_LIFE_STAGE = 32,
+    VT_PARTNER_ID = 34
   };
   uint32_t id() const {
     return GetField<uint32_t>(VT_ID, 0);
@@ -443,6 +457,18 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint32_t coins() const {
     return GetField<uint32_t>(VT_COINS, 0);
   }
+  uint8_t gender() const {
+    return GetField<uint8_t>(VT_GENDER, 0);
+  }
+  uint32_t age_years() const {
+    return GetField<uint32_t>(VT_AGE_YEARS, 0);
+  }
+  uint8_t life_stage() const {
+    return GetField<uint8_t>(VT_LIFE_STAGE, 0);
+  }
+  uint32_t partner_id() const {
+    return GetField<uint32_t>(VT_PARTNER_ID, 0);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint32_t>(verifier, VT_ID, 4) &&
@@ -463,6 +489,10 @@ struct AgentState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            VerifyOffset(verifier, VT_JOB) &&
            verifier.VerifyString(job()) &&
            VerifyField<uint32_t>(verifier, VT_COINS, 4) &&
+           VerifyField<uint8_t>(verifier, VT_GENDER, 1) &&
+           VerifyField<uint32_t>(verifier, VT_AGE_YEARS, 4) &&
+           VerifyField<uint8_t>(verifier, VT_LIFE_STAGE, 1) &&
+           VerifyField<uint32_t>(verifier, VT_PARTNER_ID, 4) &&
            verifier.EndTable();
   }
 };
@@ -507,6 +537,18 @@ struct AgentStateBuilder {
   void add_coins(uint32_t coins) {
     fbb_.AddElement<uint32_t>(AgentState::VT_COINS, coins, 0);
   }
+  void add_gender(uint8_t gender) {
+    fbb_.AddElement<uint8_t>(AgentState::VT_GENDER, gender, 0);
+  }
+  void add_age_years(uint32_t age_years) {
+    fbb_.AddElement<uint32_t>(AgentState::VT_AGE_YEARS, age_years, 0);
+  }
+  void add_life_stage(uint8_t life_stage) {
+    fbb_.AddElement<uint8_t>(AgentState::VT_LIFE_STAGE, life_stage, 0);
+  }
+  void add_partner_id(uint32_t partner_id) {
+    fbb_.AddElement<uint32_t>(AgentState::VT_PARTNER_ID, partner_id, 0);
+  }
   explicit AgentStateBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -531,8 +573,14 @@ inline flatbuffers::Offset<AgentState> CreateAgentState(
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemStack>>> inventory = 0,
     uint32_t houses = 0,
     flatbuffers::Offset<flatbuffers::String> job = 0,
-    uint32_t coins = 0) {
+    uint32_t coins = 0,
+    uint8_t gender = 0,
+    uint32_t age_years = 0,
+    uint8_t life_stage = 0,
+    uint32_t partner_id = 0) {
   AgentStateBuilder builder_(_fbb);
+  builder_.add_partner_id(partner_id);
+  builder_.add_age_years(age_years);
   builder_.add_coins(coins);
   builder_.add_job(job);
   builder_.add_houses(houses);
@@ -543,6 +591,8 @@ inline flatbuffers::Offset<AgentState> CreateAgentState(
   builder_.add_pos(pos);
   builder_.add_name(name);
   builder_.add_id(id);
+  builder_.add_life_stage(life_stage);
+  builder_.add_gender(gender);
   builder_.add_voice_profile(voice_profile);
   builder_.add_activity(activity);
   return builder_.Finish();
@@ -561,7 +611,11 @@ inline flatbuffers::Offset<AgentState> CreateAgentStateDirect(
     const std::vector<flatbuffers::Offset<game::wire::ItemStack>> *inventory = nullptr,
     uint32_t houses = 0,
     const char *job = nullptr,
-    uint32_t coins = 0) {
+    uint32_t coins = 0,
+    uint8_t gender = 0,
+    uint32_t age_years = 0,
+    uint8_t life_stage = 0,
+    uint32_t partner_id = 0) {
   auto name__ = name ? _fbb.CreateString(name) : 0;
   auto goal__ = goal ? _fbb.CreateString(goal) : 0;
   auto saying__ = saying ? _fbb.CreateString(saying) : 0;
@@ -580,7 +634,11 @@ inline flatbuffers::Offset<AgentState> CreateAgentStateDirect(
       inventory__,
       houses,
       job__,
-      coins);
+      coins,
+      gender,
+      age_years,
+      life_stage,
+      partner_id);
 }
 
 struct ItemState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
@@ -825,16 +883,36 @@ struct WorldSnapshot FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
     VT_TICK = 4,
     VT_TIME_OF_DAY = 6,
-    VT_AGENTS = 8,
-    VT_ITEMS = 10,
-    VT_BUILDINGS = 12,
-    VT_CHUNK = 14
+    VT_GAME_TIME = 8,
+    VT_DAY_COUNT = 10,
+    VT_DATE_YEAR = 12,
+    VT_DATE_MONTH = 14,
+    VT_DATE_DAY = 16,
+    VT_AGENTS = 18,
+    VT_ITEMS = 20,
+    VT_BUILDINGS = 22,
+    VT_CHUNK = 24
   };
   uint64_t tick() const {
     return GetField<uint64_t>(VT_TICK, 0);
   }
   float time_of_day() const {
     return GetField<float>(VT_TIME_OF_DAY, 0.0f);
+  }
+  double game_time() const {
+    return GetField<double>(VT_GAME_TIME, 0.0);
+  }
+  uint32_t day_count() const {
+    return GetField<uint32_t>(VT_DAY_COUNT, 0);
+  }
+  uint32_t date_year() const {
+    return GetField<uint32_t>(VT_DATE_YEAR, 0);
+  }
+  uint8_t date_month() const {
+    return GetField<uint8_t>(VT_DATE_MONTH, 0);
+  }
+  uint8_t date_day() const {
+    return GetField<uint8_t>(VT_DATE_DAY, 0);
   }
   const flatbuffers::Vector<flatbuffers::Offset<game::wire::AgentState>> *agents() const {
     return GetPointer<const flatbuffers::Vector<flatbuffers::Offset<game::wire::AgentState>> *>(VT_AGENTS);
@@ -852,6 +930,11 @@ struct WorldSnapshot FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     return VerifyTableStart(verifier) &&
            VerifyField<uint64_t>(verifier, VT_TICK, 8) &&
            VerifyField<float>(verifier, VT_TIME_OF_DAY, 4) &&
+           VerifyField<double>(verifier, VT_GAME_TIME, 8) &&
+           VerifyField<uint32_t>(verifier, VT_DAY_COUNT, 4) &&
+           VerifyField<uint32_t>(verifier, VT_DATE_YEAR, 4) &&
+           VerifyField<uint8_t>(verifier, VT_DATE_MONTH, 1) &&
+           VerifyField<uint8_t>(verifier, VT_DATE_DAY, 1) &&
            VerifyOffset(verifier, VT_AGENTS) &&
            verifier.VerifyVector(agents()) &&
            verifier.VerifyVectorOfTables(agents()) &&
@@ -876,6 +959,21 @@ struct WorldSnapshotBuilder {
   }
   void add_time_of_day(float time_of_day) {
     fbb_.AddElement<float>(WorldSnapshot::VT_TIME_OF_DAY, time_of_day, 0.0f);
+  }
+  void add_game_time(double game_time) {
+    fbb_.AddElement<double>(WorldSnapshot::VT_GAME_TIME, game_time, 0.0);
+  }
+  void add_day_count(uint32_t day_count) {
+    fbb_.AddElement<uint32_t>(WorldSnapshot::VT_DAY_COUNT, day_count, 0);
+  }
+  void add_date_year(uint32_t date_year) {
+    fbb_.AddElement<uint32_t>(WorldSnapshot::VT_DATE_YEAR, date_year, 0);
+  }
+  void add_date_month(uint8_t date_month) {
+    fbb_.AddElement<uint8_t>(WorldSnapshot::VT_DATE_MONTH, date_month, 0);
+  }
+  void add_date_day(uint8_t date_day) {
+    fbb_.AddElement<uint8_t>(WorldSnapshot::VT_DATE_DAY, date_day, 0);
   }
   void add_agents(flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::AgentState>>> agents) {
     fbb_.AddOffset(WorldSnapshot::VT_AGENTS, agents);
@@ -904,17 +1002,27 @@ inline flatbuffers::Offset<WorldSnapshot> CreateWorldSnapshot(
     flatbuffers::FlatBufferBuilder &_fbb,
     uint64_t tick = 0,
     float time_of_day = 0.0f,
+    double game_time = 0.0,
+    uint32_t day_count = 0,
+    uint32_t date_year = 0,
+    uint8_t date_month = 0,
+    uint8_t date_day = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::AgentState>>> agents = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::ItemState>>> items = 0,
     flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<game::wire::BuildingState>>> buildings = 0,
     flatbuffers::Offset<game::wire::TileChunk> chunk = 0) {
   WorldSnapshotBuilder builder_(_fbb);
+  builder_.add_game_time(game_time);
   builder_.add_tick(tick);
   builder_.add_chunk(chunk);
   builder_.add_buildings(buildings);
   builder_.add_items(items);
   builder_.add_agents(agents);
+  builder_.add_date_year(date_year);
+  builder_.add_day_count(day_count);
   builder_.add_time_of_day(time_of_day);
+  builder_.add_date_day(date_day);
+  builder_.add_date_month(date_month);
   return builder_.Finish();
 }
 
@@ -922,6 +1030,11 @@ inline flatbuffers::Offset<WorldSnapshot> CreateWorldSnapshotDirect(
     flatbuffers::FlatBufferBuilder &_fbb,
     uint64_t tick = 0,
     float time_of_day = 0.0f,
+    double game_time = 0.0,
+    uint32_t day_count = 0,
+    uint32_t date_year = 0,
+    uint8_t date_month = 0,
+    uint8_t date_day = 0,
     const std::vector<flatbuffers::Offset<game::wire::AgentState>> *agents = nullptr,
     const std::vector<flatbuffers::Offset<game::wire::ItemState>> *items = nullptr,
     const std::vector<flatbuffers::Offset<game::wire::BuildingState>> *buildings = nullptr,
@@ -933,6 +1046,11 @@ inline flatbuffers::Offset<WorldSnapshot> CreateWorldSnapshotDirect(
       _fbb,
       tick,
       time_of_day,
+      game_time,
+      day_count,
+      date_year,
+      date_month,
+      date_day,
       agents__,
       items__,
       buildings__,
@@ -1263,6 +1381,47 @@ inline flatbuffers::Offset<ChatToAgent> CreateChatToAgentDirect(
       is_order);
 }
 
+struct SetSpeed FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
+  typedef SetSpeedBuilder Builder;
+  enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
+    VT_SCALE = 4
+  };
+  float scale() const {
+    return GetField<float>(VT_SCALE, 0.0f);
+  }
+  bool Verify(flatbuffers::Verifier &verifier) const {
+    return VerifyTableStart(verifier) &&
+           VerifyField<float>(verifier, VT_SCALE, 4) &&
+           verifier.EndTable();
+  }
+};
+
+struct SetSpeedBuilder {
+  typedef SetSpeed Table;
+  flatbuffers::FlatBufferBuilder &fbb_;
+  flatbuffers::uoffset_t start_;
+  void add_scale(float scale) {
+    fbb_.AddElement<float>(SetSpeed::VT_SCALE, scale, 0.0f);
+  }
+  explicit SetSpeedBuilder(flatbuffers::FlatBufferBuilder &_fbb)
+        : fbb_(_fbb) {
+    start_ = fbb_.StartTable();
+  }
+  flatbuffers::Offset<SetSpeed> Finish() {
+    const auto end = fbb_.EndTable(start_);
+    auto o = flatbuffers::Offset<SetSpeed>(end);
+    return o;
+  }
+};
+
+inline flatbuffers::Offset<SetSpeed> CreateSetSpeed(
+    flatbuffers::FlatBufferBuilder &_fbb,
+    float scale = 0.0f) {
+  SetSpeedBuilder builder_(_fbb);
+  builder_.add_scale(scale);
+  return builder_.Finish();
+}
+
 struct ServerMessage FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   typedef ServerMessageBuilder Builder;
   enum FlatBuffersVTableOffset FLATBUFFERS_VTABLE_UNDERLYING_TYPE {
@@ -1356,6 +1515,9 @@ struct ClientMessage FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   const game::wire::ChatToAgent *payload_as_ChatToAgent() const {
     return payload_type() == game::wire::ClientPayload_ChatToAgent ? static_cast<const game::wire::ChatToAgent *>(payload()) : nullptr;
   }
+  const game::wire::SetSpeed *payload_as_SetSpeed() const {
+    return payload_type() == game::wire::ClientPayload_SetSpeed ? static_cast<const game::wire::SetSpeed *>(payload()) : nullptr;
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint8_t>(verifier, VT_PAYLOAD_TYPE, 1) &&
@@ -1371,6 +1533,10 @@ template<> inline const game::wire::Hello *ClientMessage::payload_as<game::wire:
 
 template<> inline const game::wire::ChatToAgent *ClientMessage::payload_as<game::wire::ChatToAgent>() const {
   return payload_as_ChatToAgent();
+}
+
+template<> inline const game::wire::SetSpeed *ClientMessage::payload_as<game::wire::SetSpeed>() const {
+  return payload_as_SetSpeed();
 }
 
 struct ClientMessageBuilder {
@@ -1448,6 +1614,10 @@ inline bool VerifyClientPayload(flatbuffers::Verifier &verifier, const void *obj
     }
     case ClientPayload_ChatToAgent: {
       auto ptr = reinterpret_cast<const game::wire::ChatToAgent *>(obj);
+      return verifier.VerifyTable(ptr);
+    }
+    case ClientPayload_SetSpeed: {
+      auto ptr = reinterpret_cast<const game::wire::SetSpeed *>(obj);
       return verifier.VerifyTable(ptr);
     }
     default: return true;
