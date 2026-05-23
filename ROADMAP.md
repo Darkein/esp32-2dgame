@@ -104,6 +104,163 @@
 - [ ] Audio I2S (TTS) + micro (STT)
 - [ ] Optimisations RAM/PSRAM, zone visible réduite
 
+---
+
+# Réalisme de la simulation (phases 9–21)
+
+Phases conçues pour rendre la vie villageoise crédible. Le `sim-core` actuel contient déjà
+des **scaffolds non exploités** (grossesse, longévité, traits Big Five, statut de couple,
+constantes `COUPLE_THRESHOLD` / `CONCEPTION_RATE_PER_YEAR` / `GESTATION_SECONDS` /
+`LIFESPAN_MIN/MAX` / `FERTILE_MIN/MAX` dans `catalog.ts`) qui ne sont jamais lus dans la
+boucle de tick. Ces phases activent et étendent ces fondations.
+
+**Priorités** : **P1** indispensable au réalisme de base · **P2** profondeur · **P3** raffinement / civilisation.
+
+### Ordre suggéré
+- **P1 — Fondations** : Phase 9 (démographie), 11 (météo/saisons), 10 (santé), 12 (émotions), 13 (relations)
+- **P2 — Profondeur** : Phase 14 (compétences), 15 (faune), 19 (entretien), 20 (cognition IA), 21 (UX joueur)
+- **P3 — Civilisation** : Phase 16 (politique), 17 (culture), 18 (économie avancée)
+
+## ⬜ Phase 9 — Démographie & cycle de vie *(P1)*
+Activer le scaffold existant (`Agent.age`, `lifeStage`, `pregnant`, `partnerId`).
+- [ ] Vieillissement effectif : `age_years` incrémenté au passage d'année (`SimClock.year`)
+- [ ] **Conception** : si `affinity ≥ COUPLE_THRESHOLD` entre deux agents fertiles et
+  cohabitants → tirage `CONCEPTION_RATE_PER_YEAR` (déjà dans `catalog.ts`)
+- [ ] **Gestation** : décompte `GESTATION_SECONDS`, état visible (HUD/sprite)
+- [ ] **Naissance** : nouvel agent avec `father_id`/`mother_id`, hérite village + maison
+- [ ] **Enfance** (< 14 ans) : ne travaille pas, suit un parent, joue
+- [ ] **Adolescence / apprentissage** (14–18) : choisit un mentor adulte → biais métier
+- [ ] **Aînés** (> 60) : énergie max réduite, sagesse ↑ (poids mémoire ↑)
+- [ ] **Mort** à `lifespan` (tiré entre `LIFESPAN_MIN/MAX`), ou via Phase 10
+- [ ] Sépulture / souvenir partagé à forte importance
+- Fichiers : `sim-core/src/sim.ts` (tick annuel), nouveau `sim-core/src/demography.ts`
+
+## ⬜ Phase 10 — Santé, blessures, maladies *(P1)*
+- [ ] Stat `health` (0..1) par agent, séparée des besoins
+- [ ] **Maladies** transmissibles (rhume, fièvre) avec incubation et contagion par proximité
+- [ ] **Blessures** (accidents de craft/chute) → soins requis
+- [ ] Effet **hygiène → santé** (besoin déjà présent, à brancher)
+- [ ] **Mortalité non vieillesse** : maladies graves chez aînés/enfants, accidents
+- [ ] Métier **soigneur/herboriste** : récolte plantes médicinales, prépare remèdes
+- [ ] Bâtiment **infirmerie**
+- [ ] Épidémies saisonnières (couplage Phase 11)
+- Fichiers : `sim-core/src/health.ts`, recettes plantes dans `catalog.ts`
+
+## ⬜ Phase 11 — Météo, saisons, climat *(P1)*
+- [ ] 4 saisons (printemps/été/automne/hiver) dérivées de `SimClock.month`
+- [ ] Cultures dépendantes : blé pousse printemps→été, dort hiver
+- [ ] **Météo** stochastique journalière : ensoleillé, pluie, orage, neige, brouillard, canicule
+- [ ] Pluie → arrose champs (compteur d'eau de la tuile), ralentit déplacements
+- [ ] Sécheresse → cultures meurent, marché en tension
+- [ ] Hiver → besoin chauffage (consomme bois), pas de récolte, stocks vitaux
+- [ ] Tempête / foudre → dégâts ponctuels à bâtiments en bois
+- [ ] Rendu : teinte globale + particules pluie/neige (`web-client/src/renderer.ts`)
+- [ ] Protocole : `WeatherState` dans `world.fbs` (codegen)
+- Fichiers : `sim-core/src/weather.ts`, extension `clock.ts`, `world.fbs`
+
+## ⬜ Phase 12 — Émotions & psychologie *(P1)*
+Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dialogue).
+- [ ] Humeurs : joie, tristesse, colère, peur, dégoût, surprise (vecteur 6D, décroissance)
+- [ ] **Stress** cumulatif (faim chronique, conflits, surcharge de travail)
+- [ ] **Trauma** : événement à très forte importance dans la mémoire (deuil, agression)
+- [ ] Neuroticism / extraversion (déjà présents) modulent amplitude et décroissance
+- [ ] Ambitions évolutives : succès accomplit l'aspiration → nouvelle ; échec → résignation
+- Fichiers : `sim-core/src/ai/emotion.ts`, lecture dans `orchestrator.ts` (prompt)
+
+## ⬜ Phase 13 — Relations sociales avancées *(P1)*
+- [ ] **Cour** : montée d'affinité → invitations, cadeaux, déclarations
+- [ ] **Couple officiel** : statut posé, cohabitation, partage d'inventaire/maison
+- [ ] **Mariage** (cérémonie collective, fête du village)
+- [ ] **Jalousie / rupture / divorce** si affinité d'un partenaire monte avec un tiers
+- [ ] Famille : `parents[]`, `children[]`, `siblings[]` — visibilité dans HUD
+- [ ] **Amitiés / rivalités** : seuils négatifs déclenchent évitement, disputes
+- [ ] **Réputation** : score public agrégé (vu par tout le village)
+- Fichiers : extension `entities.ts`, nouveau `sim-core/src/social.ts`
+
+## ⬜ Phase 14 — Compétences & apprentissage *(P2)*
+- [ ] Tableau de skills par métier (fermier, bûcheron, mineur, artisan, boulanger, soigneur…)
+- [ ] Gain d'XP par action ; niveau → vitesse/qualité du craft, taux d'échec
+- [ ] **Apprentissage** : enfant proche d'un adulte travaillant → XP gratuit dans son métier
+- [ ] **Mentorat** explicite (Phase 9) : aîné enseigne à jeune
+- [ ] **Recettes débloquables** : certaines connues uniquement après XP minimum
+- [ ] Transmission culturelle : recettes peuvent disparaître si plus personne ne les connaît
+- Fichiers : extension `entities.ts`, `crafting.ts`, `planner.ts`
+
+## ⬜ Phase 15 — Faune & écosystème *(P2)*
+- [ ] Animaux sauvages : cerfs, lapins, sangliers, loups, poissons (entités légères)
+- [ ] **Chasse** (métier chasseur) → viande, peaux ; risque blessure
+- [ ] **Pêche** au bord de l'eau
+- [ ] **Élevage** : poules (œufs), vaches (lait), porcs (viande) ; enclos, fourrage
+- [ ] **Prédateurs** nocturnes (loups attaquent isolés / élevage non protégé)
+- [ ] Cycle proies/prédateurs (sur-chasse → effondrement → repousse)
+- Fichiers : `sim-core/src/wildlife.ts`, extensions `world.ts` / `catalog.ts`
+
+## ⬜ Phase 16 — Société, politique & justice *(P3)*
+- [ ] **Leader de village** : élu (vote pondéré par réputation) ou auto-proclamé
+- [ ] **Lois simples** : interdit voler, frapper ; sanctions (amende, exil)
+- [ ] **Crimes** : vol (prise sans paiement), agression (en cas de colère / faim extrême)
+- [ ] **Garde** (nouveau métier) : patrouille, intervient sur crime
+- [ ] **Impôts** : prélèvement marché → fonds communs (entretien bâtiments publics)
+- [ ] Conflits inter-villages possibles (négociation, accord, embargo)
+- Fichiers : `sim-core/src/polity.ts`
+
+## ⬜ Phase 17 — Culture, rituels & art *(P3)*
+- [ ] **Fêtes saisonnières** (équinoxes, moissons) : tout le village se regroupe, +humeur
+- [ ] **Croyances** locales : esprits de la forêt, totems ; lieux sacrés sur la carte
+- [ ] **Mythes partagés** : souvenirs collectifs (haute importance, transmis par récit)
+- [ ] **Art** : musique (joue d'un instrument crafté), sculpture, peinture sur murs
+- [ ] Calendrier rituel — `SimClock` émet des « événements de fête »
+- Fichiers : `sim-core/src/culture.ts`, recettes instruments
+
+## ⬜ Phase 18 — Économie avancée *(P3)*
+- [ ] **Salaires** : un agent peut employer un autre (artisan embauche apprenti)
+- [ ] **Endettement** : prêts entre agents, intérêts simples
+- [ ] **Spécialisation par village** : un village agricole, un minier, un artisan
+- [ ] Commerce inter-village (caravane d'IA), différentiels de prix
+- [ ] **Pénuries locales** → différentiel de prix → opportunité marchande
+- [ ] Métiers de service : médecin, prêtre, garde, conteur, musicien
+- Fichiers : extensions `market.ts`, nouveau `sim-core/src/trade-caravan.ts`
+
+## ⬜ Phase 19 — Environnement dynamique & entretien *(P2)*
+- [ ] Bâtiments **vieillissent** : besoin de réparation (bois/pierre), sinon ruine
+- [ ] **Outils s'usent** : durabilité, doivent être reforgés
+- [ ] **Incendies** (foudre, four mal géré) → propagation tuile à tuile
+- [ ] **Inondations** (crues de rivière en saison des pluies)
+- [ ] Pollution / déchets autour des ateliers (effet humeur, hygiène)
+- Fichiers : extensions `world.ts`, `crafting.ts`, `weather.ts`
+
+## ⬜ Phase 20 — Cognition IA approfondie *(P2)*
+Compléter les items déjà listés en Phase 4.
+- [ ] **Embeddings** locaux (Ollama `nomic-embed-text`) pour retrieval sémantique
+- [ ] **Réflexions périodiques** : synthèse nocturne de souvenirs → croyances/objectifs
+- [ ] **Théorie de l'esprit** : modèle simple des autres (humeur supposée, métier, affinité)
+- [ ] **Planification longue durée** : objectifs hebdo/mensuels (épargner pour maison,
+  semer avant l'hiver) en plus du plan immédiat
+- [ ] **Apprentissage par l'expérience** : pondération des actions selon succès/échec passés
+- Fichiers : `sim-core/src/ai/orchestrator.ts`, nouveaux
+  `sim-core/src/ai/{reflection,theory-of-mind,long-term-plan}.ts`
+
+## ⬜ Phase 21 — UX joueur enrichi *(P2)*
+- [ ] Mémoire de la relation joueur↔IA persistante (déjà TODO Phase 5)
+- [ ] **Arbres généalogiques** consultables
+- [ ] **Carte du monde** avec villages, routes, événements en cours
+- [ ] **Journal** du village : naissances, morts, fêtes, crimes
+- [ ] **Vue d'une IA** : besoins, humeur, souvenirs, ambitions, famille
+- Fichiers : `web-client/src/ui/{family-tree,journal,worldmap}.tsx`
+
+## Réglages transverses (à appliquer dans chaque phase ci-dessus)
+- **Échelle temps** : taux naissance/mort/croissance proportionnés à `BASE_SCALE` pour
+  qu'une heure réelle (= 1 jour-jeu) reste lisible
+- **Snapshot protocole** : étendre `world.fbs` (saison, météo, santé, statut social) puis
+  `pnpm codegen`
+- **Tests Vitest** : un test par sous-système (conception, saison→culture, contagion,
+  jalousie, héritage)
+- **Déterminisme** : tout aléa via `rng.ts` (reproductibilité)
+- **Performance** : la couche rapide reste < 0,5 s ; les calculs lourds (épidémie,
+  économie inter-village) passent en jobs périodiques
+
+---
+
 ## Dette / migrations
 - [x] Passer le transport WebSocket au **binaire FlatBuffers** (au lieu de JSON) — clé pour l'ESP32
   → `packages/protocol/src/wire.ts` (encode/decode), branché serveur + `WebSocketTransport`.
