@@ -77,6 +77,27 @@
 - [x] **Placement intelligent** des bâtiments par les IA (puits près de l'eau, four/atelier/
   entrepôt autour du marché, maison près du domicile) (`sim.pickBuildSite`)
 
+## ✅ Phase 7.5 — Échelle & monde « Stardew »
+- [x] Monde **128×128** côté runtime (web/serveur) ; le défaut `sim-core` reste 48×48 pour
+  garder les tests rapides
+- [x] **Bâtiments multi-tuiles** : chaque type a un `footprint` (maison 3×3, atelier/four 2×2,
+  entrepôt 3×2, marché 4×4, puits 1×1) et une **tuile-porte** unique (`catalog.BUILDING_SHAPES`)
+- [x] Protocole étendu : `BuildingState.footprint`/`door`, nouveau `TileType.Path`
+  (`world.fbs` + `pnpm codegen` → TS/C++)
+- [x] `World.walkable` tient compte d'un bitset `blocked[]` mis à jour à chaque construction
+  (porte = seul accès au footprint) ; `buildingAt` indexé par tuile
+- [x] **Pathfinding A\*** sur tuiles, 8 directions, **coûts par terrain** (`TILE_MOVE_COST`)
+  → `packages/sim-core/src/ai/pathfind.ts`. Les agents contournent forêts/eau/footprints.
+- [x] **Chemins émergents** : `World.stampWear` accumule les passages ; au seuil
+  (`PATH_WEAR_THRESHOLD`), grass/dirt → `path` (vitesse boostée). `pavePath` reste dispo
+  pour une pose explicite (recettes futures).
+- [x] **Agrégation villageoise** : 2-3 centres pré-amorcés (`Simulation.seedVillages`),
+  spawn des agents et `pickBuildSite` ancrés sur le village d'appartenance
+- [x] **Calques de rendu façon RPG Maker** (`renderer.ts`) :
+  `tileLayer` → `propLayer` (troncs, murs, triés Y) → `agentLayer` (Y) → `overheadLayer`
+  (frondaisons, toits, **toujours par-dessus** les agents). Bâtiment et arbre partagent le
+  même mécanisme (flag ★) ; seule la collision diffère (footprint bloquant vs tuile basse).
+
 ## ⬜ Phase 8 — Client ESP32-S3 Touch
 - [ ] Projet PlatformIO (LovyanGFX/LVGL), rendu tuiles + UI tactile
 - [ ] Client WebSocket + décodage FlatBuffers C++ (code généré présent)

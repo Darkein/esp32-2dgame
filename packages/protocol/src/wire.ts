@@ -35,11 +35,11 @@ import type {
 // Tables d'enums (ordre identique au schéma .fbs).
 const TILE_TO_FB: Record<TileType, number> = {
   grass: 0, dirt: 1, water: 2, stone: 3, sand: 4, forest: 5, farm: 6,
-  champ_seme: 7, champ_pousse: 8, champ_mur: 9,
+  champ_seme: 7, champ_pousse: 8, champ_mur: 9, path: 10,
 };
 const TILE_FROM_FB: TileType[] = [
   'grass', 'dirt', 'water', 'stone', 'sand', 'forest', 'farm',
-  'champ_seme', 'champ_pousse', 'champ_mur',
+  'champ_seme', 'champ_pousse', 'champ_mur', 'path',
 ];
 const ACT_TO_FB: Record<ActivityKind, number> = {
   idle: 0, walking: 1, sleeping: 2, eating: 3, working: 4, crafting: 5, talking: 6, socializing: 7,
@@ -106,6 +106,8 @@ function encodeBuilding(b: flatbuffers.Builder, bd: BuildingState): number {
   FbBuildingState.addKind(b, kindOff);
   FbBuildingState.addPos(b, FbVec2.createVec2(b, bd.pos.x, bd.pos.y));
   FbBuildingState.addOwner(b, bd.owner);
+  FbBuildingState.addFootprint(b, FbVec2.createVec2(b, bd.footprint.x, bd.footprint.y));
+  FbBuildingState.addDoor(b, FbVec2.createVec2(b, bd.door.x, bd.door.y));
   return FbBuildingState.endBuildingState(b);
 }
 
@@ -218,7 +220,16 @@ function decodeSnapshot(ws: FbWorldSnapshot): WorldSnapshot {
   for (let i = 0; i < ws.buildingsLength(); i++) {
     const bd = ws.buildings(i)!;
     const p = bd.pos()!;
-    buildings.push({ id: bd.id(), kind: bd.kind() ?? '', pos: { x: p.x(), y: p.y() }, owner: bd.owner() });
+    const fp = bd.footprint();
+    const dr = bd.door();
+    buildings.push({
+      id: bd.id(),
+      kind: bd.kind() ?? '',
+      pos: { x: p.x(), y: p.y() },
+      owner: bd.owner(),
+      footprint: fp ? { x: fp.x(), y: fp.y() } : { x: 0, y: 0 },
+      door: dr ? { x: dr.x(), y: dr.y() } : { x: 0, y: 0 },
+    });
   }
   const snapshot: WorldSnapshot = {
     tick: Number(ws.tick()),

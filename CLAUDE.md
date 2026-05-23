@@ -76,6 +76,30 @@ Variables d'env serveur : `PORT`, `TPS`, `AGENTS`, `OLLAMA_URL`, `OLLAMA_MODEL`,
 - Commentaires en français, sobres (le « pourquoi », pas le « quoi »).
 - Le cœur de sim doit rester **sans dépendance Node/DOM** (il tourne dans un Worker).
 
+## Monde, bâtiments & marche (phase 7.5)
+
+- **Monde** : 128×128 côté web/serveur, 48×48 par défaut dans `sim-core` (tests rapides).
+  3 hameaux pré-amorcés (`Simulation.seedVillages`) ; chaque agent appartient à un village
+  (`Agent.village`), s'y installe et y bâtit.
+- **Bâtiments multi-tuiles** : `BuildingState.footprint` (w,h) + `BuildingState.door` (tuile
+  d'entrée monde). Les formes vivent dans `catalog.BUILDING_SHAPES`. Au sein du footprint,
+  **toutes les tuiles sont bloquantes sauf la porte**. Un chantier réserve d'emblée la
+  forme finale (`World.addBuilding(kind, pos, owner, asShapeOf)`).
+- **`World.walkable`** lit un bitset `blocked[]` mis à jour à chaque pose/finition de
+  bâtiment ; `buildingAt(x,y)` est O(1) via un index tuile → id.
+- **Pathfinding** : `findPath(world, from, to)` (A* 8 directions, coût par
+  `TILE_MOVE_COST`, borné ~5000 nœuds). Les agents stockent leur chemin (`Agent.path` +
+  `pathIdx`) et le rejouent waypoint par waypoint dans `Simulation.stepMovement`.
+- **Chemins émergents** : à chaque changement de tuile entière, `World.stampWear`
+  incrémente un compteur sur grass/dirt ; au seuil (`PATH_WEAR_THRESHOLD`), la tuile
+  bascule en `path` (coût de marche divisé). `World.pavePath(x,y)` reste disponible pour
+  une pose explicite (recette future).
+- **Rendu** : 4 calques `tileLayer` → `propLayer` → `agentLayer` → `overheadLayer`.
+  Arbres et bâtiments suivent le **flag ★ de RPG Maker** : partie basse (tronc / murs)
+  triée Y comme les agents, partie haute (frondaison / toit) toujours dessinée
+  **par-dessus**. La collision est régie par le footprint ; le découpage haut/bas est
+  purement visuel.
+
 ## Pièges connus
 
 - `pnpm codegen` requiert `flatc` (apt : `flatbuffers-compiler`). Le code généré est commité.

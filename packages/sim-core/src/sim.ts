@@ -9,9 +9,11 @@ import { stepNeeds } from './ai/needs';
 import { decideAction } from './ai/utility';
 import { choosePlan } from './ai/planner';
 import { Orchestrator } from './ai/orchestrator';
+import { findPath } from './ai/pathfind';
 import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
+  buildingShape,
   BUILD_BY_KIND,
   CONCEPTION_RATE_PER_YEAR,
   COUPLE_THRESHOLD,
@@ -66,6 +68,8 @@ export class Simulation {
   readonly clock: SimClock;
   readonly agents: Agent[] = [];
   readonly market = new Market();
+  /** Centres des hameaux pré-amorcés (spawns + ancrage des constructions). */
+  readonly villages: Vec2[] = [];
   private readonly rng: Rng;
   private readonly orchestrator: Orchestrator;
   private readonly dialogueQueue: DialogueEvent[] = [];
@@ -79,12 +83,49 @@ export class Simulation {
     this.clock = new SimClock(opts.ticksPerSecond ?? 15);
     this.world = new World(opts.width ?? 48, opts.height ?? 48, this.rng, GAME_SECONDS_PER_DAY);
     this.orchestrator = new Orchestrator(opts.provider ?? null, 600, (e) => this.dialogueQueue.push(e));
-    // Marché central : place d'échange unique du village.
-    this.world.addBuilding('marche', this.world.nearestWalkable(
-      Math.floor(this.world.width / 2),
-      Math.floor(this.world.height / 2),
-    ));
+    this.seedVillages();
+    // Marché central : posé sur le plus gros village (premier dans la liste).
+    const center = this.villages[0]!;
+    this.placeBuilding('marche', center);
     this.spawnAgents(opts.agentCount ?? 8);
+  }
+
+  /** Pré-amorce 2-3 centres de village dispersés (quadrants opposés).
+   *  Chaque centre est forcé sur une tuile marchable proche du point choisi. */
+  private seedVillages(): void {
+    const w = this.world.width;
+    const h = this.world.height;
+    const candidates: Vec2[] = [
+      { x: w / 2, y: h / 2 },
+      { x: w / 4, y: h / 4 },
+      { x: (3 * w) / 4, y: (3 * h) / 4 },
+    ];
+    for (const c of candidates) {
+      const spot = this.world.nearestWalkable(Math.round(c.x), Math.round(c.y));
+      this.villages.push(spot);
+    }
+  }
+
+  /** Pose un bâtiment public en cherchant un footprint libre proche de `anchor`. */
+  private placeBuilding(kind: string, anchor: Vec2, owner = 0) {
+    const site = this.findFreeFootprint(kind, anchor) ?? anchor;
+    return this.world.addBuilding(kind, site, owner);
+  }
+
+  /** Trouve un coin haut-gauche tel que tout le footprint soit libre, en spirale. */
+  private findFreeFootprint(kind: string, anchor: Vec2): Vec2 | null {
+    const ax = Math.round(anchor.x);
+    const ay = Math.round(anchor.y);
+    const max = Math.max(this.world.width, this.world.height);
+    for (let r = 0; r < max; r++) {
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+          const p = { x: ax + dx, y: ay + dy };
+          if (this.world.canPlaceBuilding(kind, p)) return p;
+        }
+    }
+    return null;
   }
 
   get llmEnabled(): boolean {
@@ -130,18 +171,16 @@ export class Simulation {
 
   private spawnAgents(n: number): void {
     for (let i = 0; i < n; i++) {
-      const home = this.world.nearestWalkable(
-        4 + this.rng.int(this.world.width - 8),
-        4 + this.rng.int(this.world.height - 8),
-      );
-      const workplace = this.world.nearestWalkable(
-        4 + this.rng.int(this.world.width - 8),
-        4 + this.rng.int(this.world.height - 8),
-      );
       const id = this.nextId++;
+      // Chaque agent appartient à un village (réparti en round-robin pour équilibrer).
+      const village = this.villages[i % this.villages.length]!;
+      const homeAnchor = this.spreadAround(village, 8);
+      const workAnchor = this.spreadAround(village, 6);
       // La maison et l'atelier de départ appartiennent à l'agent (usage exclusif).
-      this.world.addBuilding('maison', home, id);
-      this.world.addBuilding('atelier', workplace, id);
+      const homeB = this.placeBuilding('maison', homeAnchor, id);
+      const workB = this.placeBuilding('atelier', workAnchor, id);
+      const home = this.world.nearestWalkable(homeB.door.x, homeB.door.y);
+      const workplace = this.world.nearestWalkable(workB.door.x, workB.door.y);
 
       const aspirations = [this.rng.pick(ASPIRATIONS), this.rng.pick(ASPIRATIONS)].filter(
         (v, idx, a) => a.indexOf(v) === idx,
@@ -180,7 +219,10 @@ export class Simulation {
         aspirations,
         home,
         workplace,
+        village,
         target: null,
+        path: null,
+        pathIdx: 0,
         intent: 'idle',
         actionUntilGameTime: 0,
         relationships: new Map(),
@@ -198,6 +240,15 @@ export class Simulation {
       };
       this.agents.push(agent);
     }
+  }
+
+  /** Tire un point marchable dispersé autour de `center` (rayon ~ radius). */
+  private spreadAround(center: Vec2, radius: number): Vec2 {
+    const r = radius * Math.sqrt(this.rng.next());
+    const a = this.rng.next() * Math.PI * 2;
+    const x = Math.round(center.x + Math.cos(a) * r);
+    const y = Math.round(center.y + Math.sin(a) * r);
+    return this.world.nearestWalkable(x, y);
   }
 
   /** Avance la simulation d'un tick réel. Retourne les dialogues émis ce tick.
@@ -235,6 +286,9 @@ export class Simulation {
           agent.intent = decision.activity;
           const target = this.resolveTarget(agent, decision.activity, decision.target);
           agent.target = this.world.nearestWalkable(Math.round(target.x), Math.round(target.y));
+          // Recalcule un chemin tuile-à-tuile ; le mouvement suivra les waypoints.
+          agent.path = findPath(this.world, agent.state.pos, agent.target);
+          agent.pathIdx = 0;
           agent.actionUntilGameTime = subEnd + DECISION_INTERVAL_SECONDS;
         }
 
@@ -258,13 +312,40 @@ export class Simulation {
     const pos = agent.state.pos;
     const target = agent.target;
     if (target && distance(pos, target) > 0.4) {
-      const dx = target.x - pos.x;
-      const dy = target.y - pos.y;
+      // Choisit le waypoint courant (chemin A* si dispo, sinon cap direct sur target).
+      let wp: Vec2 = target;
+      if (agent.path && agent.path.length > 0) {
+        // Avance à travers les waypoints atteints ; relance A* si le chemin est obsolète.
+        while (agent.pathIdx < agent.path.length && distance(pos, agent.path[agent.pathIdx]!) < 0.4) {
+          agent.pathIdx++;
+        }
+        if (agent.pathIdx >= agent.path.length) {
+          // Chemin terminé mais target pas atteint : tente un dernier cap direct (≤ 1 tuile).
+          wp = target;
+        } else {
+          const next = agent.path[agent.pathIdx]!;
+          if (!this.world.walkable(Math.round(next.x), Math.round(next.y))) {
+            agent.path = findPath(this.world, pos, target);
+            agent.pathIdx = 0;
+            wp = agent.path && agent.path.length > 0 ? agent.path[0]! : target;
+          } else {
+            wp = next;
+          }
+        }
+      }
+      const dx = wp.x - pos.x;
+      const dy = wp.y - pos.y;
       const d = Math.hypot(dx, dy) || 1;
       // Pas borné à la distance restante (évite le dépassement en avance rapide).
       const step = Math.min(WALK_TILES_PER_GAME_SEC * dt, d);
+      const prevTx = Math.round(pos.x);
+      const prevTy = Math.round(pos.y);
       pos.x += (dx / d) * step;
       pos.y += (dy / d) * step;
+      const nowTx = Math.round(pos.x);
+      const nowTy = Math.round(pos.y);
+      // Usure : un passage marqué à chaque changement de tuile entière (chemin émergent).
+      if (nowTx !== prevTx || nowTy !== prevTy) this.world.stampWear(nowTx, nowTy, 1);
       agent.state.activity = 'walking';
       return;
     }
@@ -281,7 +362,7 @@ export class Simulation {
   private resolveTarget(agent: Agent, activity: string, fallback: Vec2): Vec2 {
     if (activity === 'crafting') return this.planTarget(agent) ?? fallback;
     if (activity === 'working') return this.workTarget(agent) ?? fallback;
-    if (activity === 'trading') return this.world.findBuilding('marche', agent.state.pos)?.pos ?? fallback;
+    if (activity === 'trading') return this.world.findBuilding('marche', agent.state.pos)?.door ?? fallback;
     return fallback;
   }
 
@@ -296,7 +377,7 @@ export class Simulation {
     // L'atelier est personnel (usage exclusif) ; le four est un bien partagé du village.
     if (station === 'atelier') return agent.workplace;
     const b = this.world.findBuilding(station, agent.state.pos);
-    return b ? b.pos : null;
+    return b ? b.door : null;
   }
 
   /** Tuile à exploiter, orientée par le métier. L'agriculture ne porte que sur les
@@ -397,9 +478,14 @@ export class Simulation {
       return { type: 'craft', recipeId: intent.recipeId, progress: 0 };
     }
     const b = BUILD_BY_KIND[intent.buildKind]!;
+    const anchor = this.pickBuildSite(agent, intent.buildKind);
+    // Cherche un emplacement où tout le footprint du bâtiment final tient ; faute de quoi annule.
+    const site = this.findFreeFootprint(intent.buildKind, anchor);
+    if (!site) return null;
     if (!pay(agent.inventory, b.inputs)) return null;
-    const site = this.pickBuildSite(agent, intent.buildKind);
-    const chantier = this.world.addBuilding('chantier', site, agent.state.id);
+    // Le chantier réserve d'emblée tout le footprint du bâtiment final (porte comprise)
+    // pour qu'aucun autre agent ne vienne se poser dessus pendant la construction.
+    const chantier = this.world.addBuilding('chantier', site, agent.state.id, intent.buildKind);
     return { type: 'build', kind: intent.buildKind, site, buildingId: chantier.id, progress: 0 };
   }
 
@@ -432,36 +518,27 @@ export class Simulation {
   /** L'agent est-il au bon poste / sur le chantier pour avancer son plan ? */
   private atPlanStation(agent: Agent, plan: ActivePlan): boolean {
     const pos = agent.state.pos;
-    if (plan.type === 'build') return distance(pos, plan.site) < 1.4;
+    if (plan.type === 'build') return distance(pos, plan.site) < 1.6;
     const station = RECIPE_BY_ID[plan.recipeId]?.station ?? null;
     if (!station) return true; // craftable n'importe où
     if (station === 'atelier') return distance(pos, agent.workplace) < 1.6;
     const b = this.world.findBuilding(station, pos);
-    return b != null && distance(pos, b.pos) < 1.6;
+    return b != null && distance(pos, b.door) < 1.6;
   }
 
-  /** Emplacement de construction intelligent selon le type de bâtiment. */
+  /** Ancre de construction (point de référence). Le four/atelier/entrepôt se regroupent
+   *  autour du marché si le village en partage un, sinon autour du centre du village ;
+   *  la maison reste près du domicile ; le puits se rapproche de l'eau. La recherche
+   *  d'un footprint libre est faite ensuite par `findFreeFootprint`. */
   private pickBuildSite(agent: Agent, kind: string): Vec2 {
-    // Le puits se place au plus près de l'eau ; le four/atelier/entrepôt se regroupent
-    // autour du marché (cœur du village) ; la maison reste près du domicile.
-    let anchor: Vec2;
     if (kind === 'puits') {
-      anchor = this.world.findWaterEdge(agent.state.pos) ?? agent.home;
-    } else if (kind === 'four' || kind === 'atelier' || kind === 'entrepot') {
-      anchor = this.world.findBuilding('marche', agent.state.pos)?.pos ?? agent.home;
-    } else {
-      anchor = agent.home;
+      return this.world.findWaterEdge(agent.state.pos) ?? agent.village;
     }
-    const ax = Math.round(anchor.x);
-    const ay = Math.round(anchor.y);
-    const offsets: [number, number][] = [
-      [0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, -2], [3, 0], [0, 3], [-3, 1], [1, -3],
-    ];
-    for (const [dx, dy] of offsets) {
-      const spot = this.world.nearestWalkable(ax + dx, ay + dy);
-      if (!this.world.buildingAt(spot.x, spot.y)) return spot;
+    if (kind === 'four' || kind === 'atelier' || kind === 'entrepot') {
+      const marche = this.world.findBuilding('marche', agent.village);
+      return marche ? marche.door : agent.village;
     }
-    return this.world.nearestWalkable(ax + 1, ay + 1);
+    return agent.home;
   }
 
   /** Échange au marché : vend les surplus, achète de quoi manger si la faim presse.
@@ -469,7 +546,7 @@ export class Simulation {
   private tryTrade(agent: Agent, now: number): void {
     if (now < agent.nextGatherGameTime) return;
     const marche = this.world.findBuilding('marche', agent.state.pos);
-    if (!marche || distance(agent.state.pos, marche.pos) > 1.6) return;
+    if (!marche || distance(agent.state.pos, marche.door) > 1.6) return;
 
     const inv = agent.inventory;
     const profile = JOB_PROFILES[agent.state.job as Job] ?? JOB_PROFILES.bucheron;
@@ -644,7 +721,10 @@ export class Simulation {
       aspirations: [this.rng.pick(ASPIRATIONS)],
       home,
       workplace: { ...mother.workplace },
+      village: mother.village,
       target: null,
+      path: null,
+      pathIdx: 0,
       intent: 'idle',
       actionUntilGameTime: 0,
       relationships: new Map(),

@@ -37,8 +37,17 @@ const snapshot: WorldSnapshot = {
     },
   ],
   items: [{ id: 1000, kind: 'pomme', pos: { x: 1, y: 2 } }],
-  buildings: [{ id: 1001, kind: 'maison', pos: { x: 4, y: 5 }, owner: 1 }],
-  chunk: { width: 3, height: 2, tiles: ['grass', 'water', 'forest', 'farm', 'stone', 'sand'] },
+  buildings: [
+    {
+      id: 1001,
+      kind: 'maison',
+      pos: { x: 4, y: 5 },
+      owner: 1,
+      footprint: { x: 3, y: 3 },
+      door: { x: 5, y: 7 },
+    },
+  ],
+  chunk: { width: 3, height: 2, tiles: ['grass', 'water', 'forest', 'farm', 'path', 'sand'] },
 };
 
 describe('protocole binaire FlatBuffers', () => {
@@ -70,7 +79,9 @@ describe('protocole binaire FlatBuffers', () => {
     expect(a.coins).toBe(42);
     expect(s.items[0]).toMatchObject({ id: 1000, kind: 'pomme' });
     expect(s.buildings[0]).toMatchObject({ id: 1001, kind: 'maison', owner: 1 });
-    expect(s.chunk?.tiles).toEqual(['grass', 'water', 'forest', 'farm', 'stone', 'sand']);
+    expect(s.buildings[0]!.footprint).toEqual({ x: 3, y: 3 });
+    expect(s.buildings[0]!.door).toEqual({ x: 5, y: 7 });
+    expect(s.chunk?.tiles).toEqual(['grass', 'water', 'forest', 'farm', 'path', 'sand']);
   });
 
   it('round-trip d\'un dialogue', () => {

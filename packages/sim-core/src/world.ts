@@ -1,6 +1,13 @@
 import type { TileType, Vec2, BuildingState, ItemState } from '@game/protocol';
 import { Rng } from './rng';
-import { TILE_RESOURCE, TILE_STOCK, TILE_REGROW_DAYS, FARM_GROW_DAYS } from './catalog';
+import {
+  TILE_RESOURCE,
+  TILE_STOCK,
+  TILE_REGROW_DAYS,
+  FARM_GROW_DAYS,
+  PATH_WEAR_THRESHOLD,
+  buildingShape,
+} from './catalog';
 
 /** Transition de tuile programmée (repousse d'un gisement ou croissance d'une culture). */
 interface TileTransition {
@@ -27,6 +34,12 @@ export class World {
   private dirty = false;
   /** Propriétaire d'un champ (cultivé par un agent), par index de tuile. */
   private readonly farmOwner = new Map<number, number>();
+  /** Tuiles occupées par le footprint d'un bâtiment (porte exclue). */
+  private readonly blocked: Uint8Array;
+  /** Compteur d'usure d'une tuile (passages d'agents) → chemin émergent. */
+  private readonly wear: Map<number, number> = new Map();
+  /** Lookup id de bâtiment par tuile (pour `buildingAt` O(1)). */
+  private readonly buildingByTile = new Map<number, number>();
   private nextEntityId = 1000;
 
   constructor(
@@ -37,6 +50,7 @@ export class World {
     private readonly secondsPerDay = 86_400,
   ) {
     this.tiles = new Array(width * height).fill('grass');
+    this.blocked = new Uint8Array(width * height);
     this.generate(rng);
   }
 
@@ -53,9 +67,12 @@ export class World {
     return this.tiles[this.idx(x, y)]!;
   }
 
-  /** Une IA peut-elle marcher sur cette tuile ? (l'eau bloque) */
+  /** Une IA peut-elle marcher sur cette tuile ? Eau bloque, et footprints aussi (sauf porte). */
   walkable(x: number, y: number): boolean {
-    return this.inBounds(x, y) && this.tileAt(x, y) !== 'water';
+    if (!this.inBounds(x, y)) return false;
+    const i = this.idx(x, y);
+    if (this.tiles[i] === 'water') return false;
+    return this.blocked[i] === 0;
   }
 
   private set(x: number, y: number, t: TileType): void {
@@ -155,11 +172,12 @@ export class World {
   /** Laboure une tuile (grass/dirt) en champ possédé par `owner`. Renvoie le succès. */
   cultivate(x: number, y: number, owner: number): boolean {
     const t = this.tileAt(x, y);
-    if (t !== 'grass' && t !== 'dirt') return false;
+    if (t !== 'grass' && t !== 'dirt' && t !== 'path') return false;
     const i = this.idx(x, y);
     this.set(x, y, 'farm');
     this.stock.delete(i); // un champ n'est pas un gisement
     this.farmOwner.set(i, owner);
+    this.wear.delete(i);
     this.dirty = true;
     return true;
   }
@@ -199,9 +217,10 @@ export class World {
     let bestD = Infinity;
     for (let y = 0; y < this.height; y++)
       for (let x = 0; x < this.width; x++) {
-        const t = this.tiles[this.idx(x, y)];
+        const i = this.idx(x, y);
+        const t = this.tiles[i];
         if (t !== 'grass' && t !== 'dirt') continue;
-        if (this.buildingAt(x, y)) continue;
+        if (this.blocked[i]) continue;
         const d = (from.x - x) ** 2 + (from.y - y) ** 2;
         if (d < bestD) {
           bestD = d;
@@ -250,6 +269,37 @@ export class World {
     this.transitions = this.transitions.filter((tr) => tr.atGameTime > gameTime);
   }
 
+  // --- Chemins : pose explicite & usure émergente --------------------------
+
+  /** Pose explicitement un chemin sur une tuile grass/dirt (coût en ressources : à l'appelant). */
+  pavePath(x: number, y: number): boolean {
+    if (!this.inBounds(x, y)) return false;
+    const i = this.idx(x, y);
+    if (this.blocked[i]) return false;
+    const t = this.tiles[i];
+    if (t !== 'grass' && t !== 'dirt') return false;
+    this.set(x, y, 'path');
+    this.wear.delete(i);
+    this.dirty = true;
+    return true;
+  }
+
+  /** Marque le passage d'un agent sur la tuile (x,y). Au seuil, grass/dirt → path. */
+  stampWear(x: number, y: number, k = 1): void {
+    if (!this.inBounds(x, y)) return;
+    const i = this.idx(x, y);
+    const t = this.tiles[i];
+    if (t !== 'grass' && t !== 'dirt') return;
+    const w = (this.wear.get(i) ?? 0) + k;
+    if (w >= PATH_WEAR_THRESHOLD) {
+      this.set(x, y, 'path');
+      this.wear.delete(i);
+      this.dirty = true;
+      return;
+    }
+    this.wear.set(i, w);
+  }
+
   // --- Recherche / divers ---------------------------------------------------
 
   /** Tuile la plus proche d'un type donné (recherche linéaire). */
@@ -274,13 +324,14 @@ export class World {
     return this.buildings.some((b) => b.kind === kind);
   }
 
-  /** Bâtiment d'un type donné le plus proche d'un point. */
+  /** Bâtiment d'un type donné le plus proche d'un point (porte de référence). */
   findBuilding(kind: string, from: Vec2): BuildingState | null {
     let best: BuildingState | null = null;
     let bestD = Infinity;
     for (const b of this.buildings) {
       if (b.kind !== kind) continue;
-      const d = (b.pos.x - from.x) ** 2 + (b.pos.y - from.y) ** 2;
+      const ref = b.door;
+      const d = (ref.x - from.x) ** 2 + (ref.y - from.y) ** 2;
       if (d < bestD) {
         bestD = d;
         best = b;
@@ -289,10 +340,22 @@ export class World {
     return best;
   }
 
-  /** Remplace le type d'un bâtiment (ex : chantier → bâtiment fini). */
+  /** Remplace le type d'un bâtiment (ex : chantier → bâtiment fini).
+   *  Le footprint et la porte sont réajustés à la forme du nouveau type
+   *  (un chantier qui « réservait » déjà le footprint final voit son blocage inchangé). */
   finishBuilding(id: number, kind: string): void {
     const b = this.buildings.find((x) => x.id === id);
-    if (b) b.kind = kind;
+    if (!b) return;
+    this.unmarkBlocked(b);
+    b.kind = kind;
+    const shape = buildingShape(kind);
+    b.footprint = { x: shape.footprint.w, y: shape.footprint.h };
+    b.door = {
+      x: Math.round(b.pos.x) + shape.door.dx,
+      y: Math.round(b.pos.y) + shape.door.dy,
+    };
+    this.markBlocked(b);
+    this.dirty = true;
   }
 
   /** Tuile marchable la plus proche bordant l'eau (pour puiser de l'eau). */
@@ -311,11 +374,12 @@ export class World {
     return best;
   }
 
-  buildingAt(x: number, y: number, radius = 1.2): BuildingState | null {
-    for (const b of this.buildings) {
-      if (Math.hypot(b.pos.x - x, b.pos.y - y) <= radius) return b;
-    }
-    return null;
+  /** Renvoie le bâtiment couvrant la tuile (x,y) si son footprint la recouvre. */
+  buildingAt(x: number, y: number): BuildingState | null {
+    if (!this.inBounds(x, y)) return null;
+    const id = this.buildingByTile.get(this.idx(x, y));
+    if (id == null) return null;
+    return this.buildings.find((b) => b.id === id) ?? null;
   }
 
   consumeTilesDirty(): boolean {
@@ -324,10 +388,82 @@ export class World {
     return d;
   }
 
-  addBuilding(kind: string, pos: Vec2, owner = 0): BuildingState {
-    const b: BuildingState = { id: this.nextEntityId++, kind, pos, owner };
+  /** Pose un bâtiment à `pos` (coin haut-gauche entier du footprint).
+   *  Si `asShapeOf` est fourni, la forme (footprint+porte) suit ce *kind* — utile pour
+   *  qu'un chantier réserve d'emblée toutes les tuiles du bâtiment final.
+   *  Met à jour `blocked[]` et `buildingByTile`. */
+  addBuilding(kind: string, pos: Vec2, owner = 0, asShapeOf?: string): BuildingState {
+    const shape = buildingShape(asShapeOf ?? kind);
+    const ax = Math.round(pos.x);
+    const ay = Math.round(pos.y);
+    const door: Vec2 = { x: ax + shape.door.dx, y: ay + shape.door.dy };
+    const b: BuildingState = {
+      id: this.nextEntityId++,
+      kind,
+      pos: { x: ax, y: ay },
+      owner,
+      footprint: { x: shape.footprint.w, y: shape.footprint.h },
+      door,
+    };
     this.buildings.push(b);
+    this.markBlocked(b);
+    this.dirty = true;
     return b;
+  }
+
+  /** Vrai si toutes les tuiles du footprint (porte incluse) sont en jeu et libres. */
+  canPlaceBuilding(kind: string, anchor: Vec2): boolean {
+    const shape = buildingShape(kind);
+    const ax = Math.round(anchor.x);
+    const ay = Math.round(anchor.y);
+    for (let dy = 0; dy < shape.footprint.h; dy++)
+      for (let dx = 0; dx < shape.footprint.w; dx++) {
+        const x = ax + dx;
+        const y = ay + dy;
+        if (!this.inBounds(x, y)) return false;
+        const i = this.idx(x, y);
+        if (this.tiles[i] === 'water') return false;
+        if (this.blocked[i]) return false;
+        // On évite de bâtir sur un champ déjà possédé.
+        if (this.farmOwner.has(i)) return false;
+      }
+    return true;
+  }
+
+  /** Marque les tuiles du footprint comme bloquées (la porte reste walkable). */
+  private markBlocked(b: BuildingState): void {
+    const ax = Math.round(b.pos.x);
+    const ay = Math.round(b.pos.y);
+    const fw = Math.max(1, b.footprint.x);
+    const fh = Math.max(1, b.footprint.y);
+    for (let dy = 0; dy < fh; dy++)
+      for (let dx = 0; dx < fw; dx++) {
+        const x = ax + dx;
+        const y = ay + dy;
+        if (!this.inBounds(x, y)) continue;
+        const i = this.idx(x, y);
+        this.buildingByTile.set(i, b.id);
+        // La porte reste walkable pour permettre l'entrée/sortie.
+        if (x === Math.round(b.door.x) && y === Math.round(b.door.y)) continue;
+        this.blocked[i] = 1;
+      }
+  }
+
+  /** Réciproque de markBlocked (utilisée à `finishBuilding` quand le footprint change). */
+  private unmarkBlocked(b: BuildingState): void {
+    const ax = Math.round(b.pos.x);
+    const ay = Math.round(b.pos.y);
+    const fw = Math.max(1, b.footprint.x);
+    const fh = Math.max(1, b.footprint.y);
+    for (let dy = 0; dy < fh; dy++)
+      for (let dx = 0; dx < fw; dx++) {
+        const x = ax + dx;
+        const y = ay + dy;
+        if (!this.inBounds(x, y)) continue;
+        const i = this.idx(x, y);
+        if (this.buildingByTile.get(i) === b.id) this.buildingByTile.delete(i);
+        this.blocked[i] = 0;
+      }
   }
 
   /** Réattribue bâtiments et champs d'un propriétaire à un autre (héritage ; 0 = public). */

@@ -10,11 +10,12 @@ const TILE_COLOR: Record<TileType, number> = {
   water: 0x3d8bd4,
   stone: 0x8d8d8d,
   sand: 0xd9c27a,
-  forest: 0x2f7a3a,
+  forest: 0x2f7a3a, // sol forestier (sombre) ; le tronc + frondaison sont au-dessus
   farm: 0x8a6a3f, // champ labouré (terre nue)
   champ_seme: 0xa07a4a, // semé (terre + germes)
   champ_pousse: 0x8fd14f, // jeune pousse
   champ_mur: 0xe3c34a, // épis dorés, prêt à récolter
+  path: 0xd8c89a, // chemin foulé / pavé (beige clair)
 };
 
 // Couleurs des bâtiments : { toit, mur }. Le chantier est translucide.
@@ -41,15 +42,38 @@ interface AgentView {
   state: AgentState;
 }
 
+/** Vue d'un bâtiment : partie basse (murs, triée Y avec les agents) et partie haute
+ *  (toit, toujours dessinée par-dessus tout — flag ★ de RPG Maker). */
+interface BuildingView {
+  lower: Container;
+  upper: Container;
+  /** Petit losange clair posé sur la tuile-porte (sous les agents). */
+  doorMarker: Graphics | null;
+  kind: string;
+}
+
+/** Vue d'un arbre (tuile forest) : partie basse (tronc, triée Y) + partie haute
+ *  (frondaison, par-dessus). */
+interface TreeView {
+  lower: Container;
+  upper: Container;
+}
+
 export class Renderer {
   readonly app = new Application();
   private world = new Container();
   private tileLayer = new Graphics();
-  private buildingLayer = new Container();
+  /** Calque « partie basse » d'objets hauts (troncs d'arbres, murs de bâtiments). Trié Y. */
+  private propLayer = new Container();
+  /** Calque des agents. Trié Y. */
   private agentLayer = new Container();
+  /** Calque « partie haute » (frondaisons, toits). Toujours dessiné par-dessus les agents. */
+  private overheadLayer = new Container();
   private night = new Graphics();
   private views = new Map<number, AgentView>();
-  private buildingViews = new Map<number, { container: Container; kind: string }>();
+  private buildingViews = new Map<number, BuildingView>();
+  /** Vues d'arbres indexées par index de tuile. */
+  private treeViews = new Map<number, TreeView>();
   private latest: WorldSnapshot | null = null;
   /** Vitesse de la simulation (1× = base) ; pilote la rapidité d'interpolation visuelle. */
   private speed = 1;
@@ -63,9 +87,14 @@ export class Renderer {
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({ background: 0x1a1f2b, resizeTo: window, antialias: true });
     host.appendChild(this.app.canvas);
+    // Ordre fond → surface : sol, parties basses (Y), agents (Y), parties hautes (par-dessus).
+    this.propLayer.sortableChildren = true;
+    this.agentLayer.sortableChildren = true;
+    this.overheadLayer.sortableChildren = true;
     this.world.addChild(this.tileLayer);
-    this.world.addChild(this.buildingLayer);
+    this.world.addChild(this.propLayer);
     this.world.addChild(this.agentLayer);
+    this.world.addChild(this.overheadLayer);
     this.app.stage.addChild(this.world);
     this.app.stage.addChild(this.night);
     this.centerCamera();
@@ -96,36 +125,111 @@ export class Renderer {
       seen.add(b.id);
       let v = this.buildingViews.get(b.id);
       if (!v || v.kind !== b.kind) {
-        v?.container.destroy({ children: true });
-        const container = drawBuilding(b.kind);
-        const s = isoToScreen(b.pos.x, b.pos.y);
-        container.x = s.x;
-        container.y = s.y;
-        container.zIndex = s.y;
-        this.buildingLayer.addChild(container);
-        v = { container, kind: b.kind };
+        if (v) this.destroyBuildingView(v);
+        v = this.createBuildingView(b);
         this.buildingViews.set(b.id, v);
       }
     }
     for (const [id, v] of this.buildingViews)
       if (!seen.has(id)) {
-        v.container.destroy({ children: true });
+        this.destroyBuildingView(v);
         this.buildingViews.delete(id);
       }
-    this.buildingLayer.sortableChildren = true;
+  }
+
+  private destroyBuildingView(v: BuildingView): void {
+    v.lower.destroy({ children: true });
+    v.upper.destroy({ children: true });
+    if (v.doorMarker) v.doorMarker.destroy();
+  }
+
+  /** Crée la vue d'un bâtiment : murs (propLayer, triés Y) + toit (overheadLayer, par-dessus). */
+  private createBuildingView(b: BuildingState): BuildingView {
+    const fw = Math.max(1, b.footprint?.x || 1);
+    const fh = Math.max(1, b.footprint?.y || 1);
+    // Centre du footprint en monde (pour que zIndex = screenY corresponde au « pied » sud).
+    const cx = b.pos.x + fw / 2 - 0.5;
+    const cy = b.pos.y + fh / 2 - 0.5;
+    const south = isoToScreen(cx, cy + fh / 2);
+    const sCenter = isoToScreen(cx, cy);
+
+    const { lower, upper, baseY } = drawBuilding(b.kind, fw, fh);
+    // Position commune : ancrée sur le centre du footprint.
+    lower.x = sCenter.x;
+    lower.y = sCenter.y;
+    upper.x = sCenter.x;
+    upper.y = sCenter.y;
+    // Le tri Y se fait sur le « pied sud » du bâtiment : il passe derrière un agent
+    // plus au sud, et devant un agent plus au nord (cohérent avec son ombre au sol).
+    lower.zIndex = south.y;
+    // Le toit, lui, est trié entre éléments overhead par sa base également.
+    upper.zIndex = south.y;
+    this.propLayer.addChild(lower);
+    this.overheadLayer.addChild(upper);
+
+    // Marqueur de porte : petit losange clair posé au sol pour la lisibilité.
+    let doorMarker: Graphics | null = null;
+    if (b.door) {
+      const doorScreen = isoToScreen(b.door.x, b.door.y);
+      doorMarker = new Graphics()
+        .poly([
+          doorScreen.x, doorScreen.y - TILE_H / 4,
+          doorScreen.x + TILE_W / 4, doorScreen.y,
+          doorScreen.x, doorScreen.y + TILE_H / 4,
+          doorScreen.x - TILE_W / 4, doorScreen.y,
+        ])
+        .fill({ color: 0xf2e1b5, alpha: 0.65 });
+      // Rangé bas dans propLayer pour passer sous les agents et sous le bâtiment.
+      doorMarker.zIndex = doorScreen.y - 10_000;
+      this.propLayer.addChild(doorMarker);
+    }
+    void baseY;
+    return { lower, upper, doorMarker, kind: b.kind };
   }
 
   private drawTiles(w: number, h: number, tiles: TileType[]): void {
     this.tileLayer.clear();
+    // Détruit les anciennes vues d'arbres (le chunk peut changer : forêt épuisée → grass).
+    for (const v of this.treeViews.values()) {
+      v.lower.destroy({ children: true });
+      v.upper.destroy({ children: true });
+    }
+    this.treeViews.clear();
     for (let y = 0; y < h; y++)
       for (let x = 0; x < w; x++) {
         const s = isoToScreen(x, y);
-        const color = TILE_COLOR[tiles[y * w + x] ?? 'grass'];
+        const tile = tiles[y * w + x] ?? 'grass';
+        const color = TILE_COLOR[tile];
         this.tileLayer
           .poly([s.x, s.y - TILE_H / 2, s.x + TILE_W / 2, s.y, s.x, s.y + TILE_H / 2, s.x - TILE_W / 2, s.y])
           .fill({ color })
           .stroke({ color: 0x000000, alpha: 0.08, width: 1 });
+        if (tile === 'forest') this.spawnTree(x, y, w);
       }
+  }
+
+  /** Crée la vue d'un arbre (tronc trié Y + frondaison toujours par-dessus). */
+  private spawnTree(x: number, y: number, w: number): void {
+    const s = isoToScreen(x, y);
+    const lower = new Graphics();
+    // Tronc : petit rectangle iso, ancré sur la tuile.
+    lower.rect(-3, -16, 6, 16).fill({ color: 0x6b3d1f }).stroke({ color: 0x3d2010, width: 1, alpha: 0.6 });
+    lower.x = s.x;
+    lower.y = s.y;
+    lower.zIndex = s.y;
+
+    const upper = new Graphics();
+    // Frondaison : disque vert sombre, offset d'~1 tuile vers le haut.
+    upper.circle(0, -32, 14).fill({ color: 0x1f5a2a }).stroke({ color: 0x0d2f15, width: 1, alpha: 0.6 });
+    upper.circle(-8, -28, 10).fill({ color: 0x2a6d35 });
+    upper.circle(7, -30, 11).fill({ color: 0x2a6d35 });
+    upper.x = s.x;
+    upper.y = s.y;
+    upper.zIndex = s.y;
+
+    this.propLayer.addChild(lower);
+    this.overheadLayer.addChild(upper);
+    this.treeViews.set(y * w + x, { lower, upper });
   }
 
   private syncAgents(agents: AgentState[]): void {
@@ -187,7 +291,6 @@ export class Renderer {
       v.container.y += (v.target.y - v.container.y) * k;
       v.container.zIndex = v.container.y;
     }
-    this.agentLayer.sortableChildren = true;
   }
 
   private pick(e: PointerEvent): void {
@@ -207,27 +310,44 @@ export class Renderer {
   }
 }
 
-/** Dessine un bâtiment isométrique simple (deux faces + toit) selon son type. */
-function drawBuilding(kind: string): Container {
-  const c = new Container();
-  const g = new Graphics();
+/** Dessine un bâtiment isométrique scalé sur (fw, fh) tuiles : volume bas (murs + faces)
+ *  dans `lower`, toit en losange dans `upper`. `baseY` = altitude au pied du bâtiment. */
+function drawBuilding(kind: string, fw: number, fh: number): { lower: Container; upper: Container; baseY: number } {
   const col = BUILDING_COLOR[kind] ?? { roof: 0xcccccc, wall: 0x999999 };
   const alpha = col.alpha ?? 1;
-  const H = kind === 'chantier' ? 8 : kind === 'puits' ? 12 : 24;
-  const hw = (TILE_W / 2) * 0.62;
-  const hh = (TILE_H / 2) * 0.62;
+  // Hauteur du volume (en pixels écran) : un peu plus haute pour les grands bâtiments.
+  const H = kind === 'chantier' ? 10 : kind === 'puits' ? 14 : 22 + Math.min(fw, fh) * 6;
+  // Demi-largeur/demi-hauteur du losange de base, dépend du footprint.
+  const hw = (TILE_W / 2) * Math.max(fw, fh) * 0.85;
+  const hh = (TILE_H / 2) * Math.max(fw, fh) * 0.85;
   const dark = (hex: number) => {
-    const r = ((hex >> 16) & 0xff) * 0.75;
-    const gr = ((hex >> 8) & 0xff) * 0.75;
-    const b = (hex & 0xff) * 0.75;
-    return (r << 16) | (gr << 8) | b;
+    const r = ((hex >> 16) & 0xff) * 0.72;
+    const g = ((hex >> 8) & 0xff) * 0.72;
+    const b = (hex & 0xff) * 0.72;
+    return ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
   };
-  // Face gauche puis droite (murs), puis le toit en losange surélevé.
-  g.poly([-hw, 0, 0, hh, 0, hh - H, -hw, -H]).fill({ color: dark(col.wall), alpha });
-  g.poly([hw, 0, 0, hh, 0, hh - H, hw, -H]).fill({ color: col.wall, alpha });
-  g.poly([0, -H - hh, hw, -H, 0, -H + hh, -hw, -H]).fill({ color: col.roof, alpha });
-  c.addChild(g);
-  return c;
+
+  // Lower = faces visibles (gauche + droite). Les faces partent du sol (y=0) vers -H.
+  const lower = new Container();
+  const g = new Graphics();
+  // Face gauche (assombrie).
+  g.poly([-hw, 0, 0, hh, 0, -H + hh, -hw, -H]).fill({ color: dark(col.wall), alpha });
+  // Face droite (couleur pleine).
+  g.poly([hw, 0, 0, hh, 0, -H + hh, hw, -H]).fill({ color: col.wall, alpha });
+  // Quelques lignes d'aspect (planches/joints) sur la face avant pour la lisibilité.
+  g.moveTo(-hw + 2, -H + hh / 2).lineTo(0, hh / 2).stroke({ color: 0x000000, alpha: 0.15, width: 1 });
+  lower.addChild(g);
+
+  // Upper = toit (losange surélevé). Va dans overheadLayer → toujours par-dessus agents.
+  const upper = new Container();
+  const r = new Graphics();
+  r.poly([0, -H - hh, hw, -H, 0, -H + hh, -hw, -H]).fill({ color: col.roof, alpha });
+  // Petite cheminée pour les maisons / fours, pour le charme.
+  if ((kind === 'maison' || kind === 'four') && fh >= 2) {
+    r.rect(hw * 0.35, -H - hh - 6, 6, 8).fill({ color: 0x4a3a30, alpha });
+  }
+  upper.addChild(r);
+  return { lower, upper, baseY: hh };
 }
 
 function agentColor(id: number): number {

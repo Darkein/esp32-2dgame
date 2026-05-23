@@ -70,11 +70,12 @@ enum TileType : uint8_t {
   TileType_ChampSeme = 7,
   TileType_ChampPousse = 8,
   TileType_ChampMur = 9,
+  TileType_Path = 10,
   TileType_MIN = TileType_Grass,
-  TileType_MAX = TileType_ChampMur
+  TileType_MAX = TileType_Path
 };
 
-inline const TileType (&EnumValuesTileType())[10] {
+inline const TileType (&EnumValuesTileType())[11] {
   static const TileType values[] = {
     TileType_Grass,
     TileType_Dirt,
@@ -85,13 +86,14 @@ inline const TileType (&EnumValuesTileType())[10] {
     TileType_Farm,
     TileType_ChampSeme,
     TileType_ChampPousse,
-    TileType_ChampMur
+    TileType_ChampMur,
+    TileType_Path
   };
   return values;
 }
 
 inline const char * const *EnumNamesTileType() {
-  static const char * const names[11] = {
+  static const char * const names[12] = {
     "Grass",
     "Dirt",
     "Water",
@@ -102,13 +104,14 @@ inline const char * const *EnumNamesTileType() {
     "ChampSeme",
     "ChampPousse",
     "ChampMur",
+    "Path",
     nullptr
   };
   return names;
 }
 
 inline const char *EnumNameTileType(TileType e) {
-  if (flatbuffers::IsOutRange(e, TileType_Grass, TileType_ChampMur)) return "";
+  if (flatbuffers::IsOutRange(e, TileType_Grass, TileType_Path)) return "";
   const size_t index = static_cast<size_t>(e);
   return EnumNamesTileType()[index];
 }
@@ -722,7 +725,9 @@ struct BuildingState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
     VT_ID = 4,
     VT_KIND = 6,
     VT_POS = 8,
-    VT_OWNER = 10
+    VT_OWNER = 10,
+    VT_FOOTPRINT = 12,
+    VT_DOOR = 14
   };
   uint32_t id() const {
     return GetField<uint32_t>(VT_ID, 0);
@@ -736,6 +741,12 @@ struct BuildingState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
   uint32_t owner() const {
     return GetField<uint32_t>(VT_OWNER, 0);
   }
+  const game::wire::Vec2 *footprint() const {
+    return GetStruct<const game::wire::Vec2 *>(VT_FOOTPRINT);
+  }
+  const game::wire::Vec2 *door() const {
+    return GetStruct<const game::wire::Vec2 *>(VT_DOOR);
+  }
   bool Verify(flatbuffers::Verifier &verifier) const {
     return VerifyTableStart(verifier) &&
            VerifyField<uint32_t>(verifier, VT_ID, 4) &&
@@ -743,6 +754,8 @@ struct BuildingState FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {
            verifier.VerifyString(kind()) &&
            VerifyField<game::wire::Vec2>(verifier, VT_POS, 4) &&
            VerifyField<uint32_t>(verifier, VT_OWNER, 4) &&
+           VerifyField<game::wire::Vec2>(verifier, VT_FOOTPRINT, 4) &&
+           VerifyField<game::wire::Vec2>(verifier, VT_DOOR, 4) &&
            verifier.EndTable();
   }
 };
@@ -763,6 +776,12 @@ struct BuildingStateBuilder {
   void add_owner(uint32_t owner) {
     fbb_.AddElement<uint32_t>(BuildingState::VT_OWNER, owner, 0);
   }
+  void add_footprint(const game::wire::Vec2 *footprint) {
+    fbb_.AddStruct(BuildingState::VT_FOOTPRINT, footprint);
+  }
+  void add_door(const game::wire::Vec2 *door) {
+    fbb_.AddStruct(BuildingState::VT_DOOR, door);
+  }
   explicit BuildingStateBuilder(flatbuffers::FlatBufferBuilder &_fbb)
         : fbb_(_fbb) {
     start_ = fbb_.StartTable();
@@ -779,8 +798,12 @@ inline flatbuffers::Offset<BuildingState> CreateBuildingState(
     uint32_t id = 0,
     flatbuffers::Offset<flatbuffers::String> kind = 0,
     const game::wire::Vec2 *pos = nullptr,
-    uint32_t owner = 0) {
+    uint32_t owner = 0,
+    const game::wire::Vec2 *footprint = nullptr,
+    const game::wire::Vec2 *door = nullptr) {
   BuildingStateBuilder builder_(_fbb);
+  builder_.add_door(door);
+  builder_.add_footprint(footprint);
   builder_.add_owner(owner);
   builder_.add_pos(pos);
   builder_.add_kind(kind);
@@ -793,14 +816,18 @@ inline flatbuffers::Offset<BuildingState> CreateBuildingStateDirect(
     uint32_t id = 0,
     const char *kind = nullptr,
     const game::wire::Vec2 *pos = nullptr,
-    uint32_t owner = 0) {
+    uint32_t owner = 0,
+    const game::wire::Vec2 *footprint = nullptr,
+    const game::wire::Vec2 *door = nullptr) {
   auto kind__ = kind ? _fbb.CreateString(kind) : 0;
   return game::wire::CreateBuildingState(
       _fbb,
       id,
       kind__,
       pos,
-      owner);
+      owner,
+      footprint,
+      door);
 }
 
 struct TileChunk FLATBUFFERS_FINAL_CLASS : private flatbuffers::Table {

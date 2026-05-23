@@ -10,5 +10,6 @@ export enum TileType {
   Farm = 6,
   ChampSeme = 7,
   ChampPousse = 8,
-  ChampMur = 9
+  ChampMur = 9,
+  Path = 10
 }

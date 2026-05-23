@@ -85,6 +85,36 @@ export const BUILD_BY_KIND: Record<string, BuildRecipe> = Object.fromEntries(
   BUILD_RECIPES.map((b) => [b.kind, b]),
 );
 
+/** Footprint d'un bâtiment et offset (depuis le coin haut-gauche) de sa tuile-porte.
+ *  Seule la porte reste walkable dans la zone occupée — c'est l'unique point d'entrée.
+ *  Convention : porte en bordure basse, ce qui colle au rendu iso (face « avant »). */
+export interface BuildingShape {
+  /** Largeur/hauteur en tuiles entières. */
+  footprint: { w: number; h: number };
+  /** Offset de la porte (x ∈ [0, w−1], y ∈ [0, h−1]) depuis le coin haut-gauche. */
+  door: { dx: number; dy: number };
+}
+
+export const BUILDING_SHAPES: Record<string, BuildingShape> = {
+  maison:   { footprint: { w: 3, h: 3 }, door: { dx: 1, dy: 2 } },
+  atelier:  { footprint: { w: 2, h: 2 }, door: { dx: 0, dy: 1 } },
+  four:     { footprint: { w: 2, h: 2 }, door: { dx: 0, dy: 1 } },
+  entrepot: { footprint: { w: 3, h: 2 }, door: { dx: 1, dy: 1 } },
+  puits:    { footprint: { w: 1, h: 1 }, door: { dx: 0, dy: 0 } },
+  marche:   { footprint: { w: 4, h: 4 }, door: { dx: 1, dy: 3 } },
+  chantier: { footprint: { w: 1, h: 1 }, door: { dx: 0, dy: 0 } },
+};
+
+/** Forme par défaut si le bâtiment n'est pas répertorié (mono-tuile, porte = elle-même). */
+export const DEFAULT_BUILDING_SHAPE: BuildingShape = {
+  footprint: { w: 1, h: 1 },
+  door: { dx: 0, dy: 0 },
+};
+
+export function buildingShape(kind: string): BuildingShape {
+  return BUILDING_SHAPES[kind] ?? DEFAULT_BUILDING_SHAPE;
+}
+
 /** Rassasiement par aliment (point de faim regagné par unité consommée). */
 export const FOOD_SATIETY: Record<string, number> = {
   pain: 30,
@@ -126,6 +156,26 @@ export const JOB_PROFILES: Record<Job, JobProfile> = {
 
 /** Nombre maximum de champs qu'un fermier entretient. */
 export const MAX_FARMS_PER_AGENT = 4;
+
+/** Coût de déplacement par type de tuile (multiplicateur du pas A*).
+ *  Water/path n'apparaissent jamais comme « non walkable » côté A* via water :
+ *  on les filtre avant. Path est presque gratuit (chemin foulé), forêt lente. */
+export const TILE_MOVE_COST: Record<TileType, number> = {
+  path: 0.5,
+  grass: 1,
+  dirt: 1,
+  sand: 1.4,
+  farm: 1.2,
+  champ_seme: 1.3,
+  champ_pousse: 1.4,
+  champ_mur: 1.5,
+  forest: 2.5,
+  stone: 1.6,
+  water: Infinity,
+};
+
+/** Nombre de passages sur une tuile grass/dirt avant qu'elle bascule en chemin foulé. */
+export const PATH_WEAR_THRESHOLD = 40;
 
 export const JOBS = Object.keys(JOB_PROFILES) as Job[];
 

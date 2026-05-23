@@ -16,7 +16,9 @@ self.onmessage = (ev: MessageEvent) => {
   if (data.t === 'init') {
     // LLM désactivé dans le worker (pas d'accès Ollama/cloud depuis le navigateur) :
     // le jeu reste pleinement jouable via la couche rapide. Le LLM s'active côté serveur.
-    sim = new Simulation({ provider: null, agentCount: data.agentCount ?? 10, ticksPerSecond: 15 });
+    // Monde 128×128 « Stardew » : laisse la place à plusieurs hameaux et aux chemins
+    // émergents. Les tests utilisent la taille par défaut de Simulation, plus petite.
+    sim = new Simulation({ provider: null, agentCount: data.agentCount ?? 10, ticksPerSecond: 15, width: 128, height: 128 });
     post({ t: 'snapshot', snapshot: sim.snapshot(true) });
 
     const tps = 15;
