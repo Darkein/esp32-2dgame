@@ -49,7 +49,9 @@ describe('économie en jeu', () => {
   it('les agents fabriquent des objets et bâtissent avec le temps', () => {
     const sim = new Simulation({ seed: 7, agentCount: 8 });
     const initialBuildings = sim.world.buildings.length;
-    for (let i = 0; i < 12000; i++) sim.tick();
+    // ~15 jours de jeu : laisse le temps aux agents de contourner les footprints multi-tuiles
+    // et d'accumuler de quoi poser un chantier en plus de leur maison/atelier de départ.
+    for (let i = 0; i < 18000; i++) sim.tick();
     const inv = new Map<string, number>();
     for (const a of sim.snapshot().agents)
       for (const st of a.inventory) inv.set(st.kind, (inv.get(st.kind) ?? 0) + st.count);

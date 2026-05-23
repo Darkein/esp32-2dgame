@@ -45,8 +45,18 @@ owner():number {
   return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
 }
 
+footprint(obj?:Vec2):Vec2|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? (obj || new Vec2()).__init(this.bb_pos + offset, this.bb!) : null;
+}
+
+door(obj?:Vec2):Vec2|null {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? (obj || new Vec2()).__init(this.bb_pos + offset, this.bb!) : null;
+}
+
 static startBuildingState(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(6);
 }
 
 static addId(builder:flatbuffers.Builder, id:number) {
@@ -63,6 +73,14 @@ static addPos(builder:flatbuffers.Builder, posOffset:flatbuffers.Offset) {
 
 static addOwner(builder:flatbuffers.Builder, owner:number) {
   builder.addFieldInt32(3, owner, 0);
+}
+
+static addFootprint(builder:flatbuffers.Builder, footprintOffset:flatbuffers.Offset) {
+  builder.addFieldStruct(4, footprintOffset, 0);
+}
+
+static addDoor(builder:flatbuffers.Builder, doorOffset:flatbuffers.Offset) {
+  builder.addFieldStruct(5, doorOffset, 0);
 }
 
 static endBuildingState(builder:flatbuffers.Builder):flatbuffers.Offset {

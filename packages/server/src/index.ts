@@ -24,7 +24,13 @@ async function main() {
   });
   console.log(`[serveur] LLM: ${provider ? provider.name : 'aucun (fast-layer seul)'}`);
 
-  const sim = new Simulation({ provider, agentCount: Number(process.env.AGENTS ?? 10), ticksPerSecond: TPS });
+  const sim = new Simulation({
+    provider,
+    agentCount: Number(process.env.AGENTS ?? 10),
+    ticksPerSecond: TPS,
+    width: Number(process.env.WORLD_W ?? 128),
+    height: Number(process.env.WORLD_H ?? 128),
+  });
 
   // Serveur HTTP minimal : sert le health check (sondé par l'hébergeur) ; le WebSocket s'y greffe.
   const http = createServer((req, res) => {

@@ -12,7 +12,8 @@ export type TileType =
   | 'farm'
   | 'champ_seme'
   | 'champ_pousse'
-  | 'champ_mur';
+  | 'champ_mur'
+  | 'path';
 
 export type ActivityKind =
   | 'idle'
@@ -86,9 +87,14 @@ export interface ItemState {
 export interface BuildingState {
   id: number;
   kind: string;
+  /** Coin haut-gauche du footprint (tuiles entières), ou centre si mono-tuile. */
   pos: Vec2;
   /** Id de l'agent propriétaire (0 = bien public, ex : marché). */
   owner: number;
+  /** Taille du footprint en tuiles. (0,0) = mono-tuile (rétro-compatibilité). */
+  footprint: Vec2;
+  /** Tuile-porte en coordonnées monde absolues (seul point d'entrée pratique). */
+  door: Vec2;
 }
 
 export interface TileChunk {

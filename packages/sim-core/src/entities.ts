@@ -36,6 +36,12 @@ export interface Agent {
   workplace: Vec2;
   /** Cible de déplacement courante (null = sur place). */
   target: Vec2 | null;
+  /** Chemin tuile-à-tuile vers `target` (A*), null si pas calculé / pas nécessaire. */
+  path: Vec2[] | null;
+  /** Indice du prochain waypoint dans `path`. */
+  pathIdx: number;
+  /** Centre du village d'appartenance (spawn + ancrage des constructions). */
+  village: Vec2;
   /** Activité à exécuter une fois la cible atteinte. */
   intent: ActivityKind;
   /** Temps de jeu (s) jusqu'auquel la décision courante tient (re-décision ensuite). */

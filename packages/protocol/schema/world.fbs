@@ -22,6 +22,7 @@ enum TileType : ubyte {
   ChampSeme,     // champ semé (graine en terre)
   ChampPousse,   // jeune pousse
   ChampMur,      // prêt à récolter
+  Path,          // chemin (foulé ou pavé) : marche rapide
 }
 
 enum ActivityKind : ubyte {
@@ -80,8 +81,10 @@ table ItemState {
 table BuildingState {
   id:uint;
   kind:string;
-  pos:Vec2;
+  pos:Vec2;              // coin haut-gauche du footprint (en tuiles), ou centre si mono-tuile
   owner:uint;            // id de l'agent propriétaire (0 = bien public, ex : marché)
+  footprint:Vec2;        // taille en tuiles (w, h) ; (0,0) → mono-tuile (rétro-compat)
+  door:Vec2;             // tuile-porte en coordonnées monde absolues (seul point d'entrée)
 }
 
 // Tuiles : envoyées une fois (chunk statique) puis deltas si besoin.
