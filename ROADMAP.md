@@ -152,8 +152,11 @@ Activer le scaffold existant (`Agent.age`, `lifeStage`, `pregnant`, `partnerId`)
 - [x] **Fragilité** des enfants et aînés (`FRAGILE_FACTOR` = 1.8 sur onset + dégâts)
 - [x] **Guérison naturelle** si bonnes conditions (énergie & faim > 40 à terme),
   récupération hors maladie quand l'hygiène est correcte
-- [x] **Sommeil restaure l'hygiène** (toilette + récupération du corps), évite la
-  dégradation infinie en attendant l'activité « wash » dédiée
+- [x] **Activité `washing`** dédiée : puits du village en priorité, sinon bord d'eau ;
+  ~10 min de jeu pour repasser de 0 à 100 d'hygiène (`needs.GAIN.washing`). Sous le
+  seuil santé, l'urgence enfle pour passer devant le travail dans `decideAction`. Note :
+  le wire FlatBuffers ne connaît pas encore `washing` (encodé comme `idle`), à corriger
+  lors d'un futur `pnpm codegen`.
 - [ ] **Blessures** (accidents de craft/chute) → soins requis
 - [ ] Métier **soigneur/herboriste** : récolte plantes médicinales, prépare remèdes
 - [ ] Bâtiment **infirmerie**

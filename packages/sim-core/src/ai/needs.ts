@@ -20,16 +20,15 @@ const DECAY: Needs = {
 const GAIN: Record<ActivityKind, Partial<Needs>> = {
   idle: {},
   walking: {},
-  // Le sommeil compense aussi la décroissance d'hygiène (toilette du matin / corps qui
-  // récupère) : c'est ce qui empêche l'hygiène de descendre indéfiniment chez quelqu'un
-  // qui dort régulièrement, en attendant une vraie activité « wash » (Phase 19).
-  sleeping: { energy: 100 / (7 * H) + DECAY.energy, hygiene: DECAY.hygiene + 50 / (8 * H) },
+  sleeping: { energy: 100 / (7 * H) + DECAY.energy }, // recharge pleine en ~7 h
   eating: { hunger: 100 / (20 * 60) + DECAY.hunger }, // rassasié en ~20 min
   working: { fun: -DECAY.fun * 0.5, energy: -DECAY.energy * 0.5 },
   crafting: { fun: 100 / (4 * H) },
   talking: { social: 100 / (1 * H), fun: 100 / (3 * H) },
   socializing: { social: 100 / (45 * 60), fun: 100 / (2.5 * H) },
   trading: { social: 100 / (6 * H) },
+  // Lavage au puits / bord d'eau : ~10 min de jeu pour repasser de 0 à 100 d'hygiène.
+  washing: { hygiene: 100 / (10 * 60) + DECAY.hygiene },
 };
 
 function clamp(v: number): number {

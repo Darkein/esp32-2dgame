@@ -24,7 +24,8 @@ export type ActivityKind =
   | 'crafting'
   | 'talking'
   | 'socializing'
-  | 'trading';
+  | 'trading'
+  | 'washing';
 
 export interface Vec2 {
   x: number;

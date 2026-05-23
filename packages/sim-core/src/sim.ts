@@ -416,6 +416,15 @@ export class Simulation {
     else if (agent.intent === 'crafting') this.advancePlan(agent, dt);
     else if (agent.intent === 'eating') this.tryEat(agent, now);
     else if (agent.intent === 'trading') this.tryTrade(agent, now);
+    else if (agent.intent === 'washing') this.tryWash(agent, now);
+  }
+
+  /** Se laver : pas d'action discrète, le gain d'hygiène est appliqué par `stepNeeds`
+   *  tant que `state.activity === 'washing'`. On marque juste un souvenir cadencé. */
+  private tryWash(agent: Agent, now: number): void {
+    if (now < agent.nextGatherGameTime) return;
+    agent.memory.add(this.clock.tick, "Je me suis lavé(e)", 1);
+    agent.nextGatherGameTime = now + GATHER_CADENCE_SECONDS;
   }
 
   /** Cible de déplacement selon l'activité : poste de craft, chantier, marché ou gisement. */
@@ -423,6 +432,10 @@ export class Simulation {
     if (activity === 'crafting') return this.planTarget(agent) ?? fallback;
     if (activity === 'working') return this.workTarget(agent) ?? fallback;
     if (activity === 'trading') return this.world.findBuilding('marche', agent.state.pos)?.door ?? fallback;
+    if (activity === 'washing') {
+      const well = this.world.findBuilding('puits', agent.state.pos);
+      return well?.door ?? this.world.findWaterEdge(agent.state.pos) ?? fallback;
+    }
     return fallback;
   }
 
