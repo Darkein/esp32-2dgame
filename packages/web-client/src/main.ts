@@ -81,6 +81,17 @@ async function main() {
 
   renderer.onSelect = showAgent;
 
+  // Fermeture du panneau agent (× au coin haut-droit ; utile surtout au tactile).
+  const closePanel = () => {
+    selectedId = null;
+    $('panel').style.display = 'none';
+  };
+  $('closePanel').addEventListener('click', closePanel);
+  // ESC ferme aussi le panneau (desktop).
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && selectedId != null) closePanel();
+  });
+
   transport.onSnapshot((s: WorldSnapshot) => {
     lastAgents = s.agents;
     for (const a of s.agents) names.set(a.id, a.name);

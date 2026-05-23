@@ -118,6 +118,23 @@
       font-size: 16px;
     }
 
+    /* Croix de fermeture du panneau agent (utile surtout sur mobile, où il n'y a
+       pas de "désélection" naturelle). Au coin haut-droit du panneau. */
+    #closePanel {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      line-height: 28px;
+      font-size: 18px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+    }
+    #closePanel:hover { background: rgba(255,255,255,.08); }
+
     .need {
       display: flex;
       align-items: center;
@@ -311,6 +328,7 @@
     <button id="voiceBtn">🔊 Voix : off</button>
   </div>
   <div id="panel" class="hud">
+    <button id="closePanel" aria-label="Fermer">×</button>
     <h2 id="pname">—</h2>
     <div id="pactivity" style="opacity:.8"></div>
     <div id="plife" style="opacity:.8; font-size:12px; margin:2px 0"></div>

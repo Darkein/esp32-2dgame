@@ -8,33 +8,24 @@ const TAP_MAX_DURATION_MS = 500;
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 3;
 
-interface Pointer {
-  x: number;
-  y: number;
-  startX: number;
-  startY: number;
-  startedAt: number;
-  moved: boolean;
-}
-
 /** Caméra : pan (1 doigt / souris), pinch-zoom (2 doigts), molette (desktop), tap (sélection).
- *  `onTap(clientX, clientY)` est appelé pour un tap court sans déplacement (ni pinch). */
+ *
+ *  Implémentation hybride :
+ *  - **Touch** → `TouchEvent` (chemin le plus stable pour le multi-touch sur iOS/Android ;
+ *    `PointerEvent` souffre de bugs connus avec `setPointerCapture` quand un 2ᵉ doigt
+ *    arrive — la 2ᵉ touche est parfois muette).
+ *  - **Souris** → `PointerEvent` (`pointerType !== 'touch'`).
+ *
+ *  `onTap(clientX, clientY)` est appelé pour un tap court sans déplacement (et sans pinch).
+ */
 export function attachCameraControls(
   canvas: HTMLCanvasElement,
   camera: Container,
   onTap: (clientX: number, clientY: number) => void = () => {},
 ): void {
-  const pointers = new Map<number, Pointer>();
-  /** Distance entre les deux pointeurs au dernier event (pour calculer le delta de pinch). */
-  let lastPinchDist = 0;
-  /** Vrai si le geste en cours est un pinch (≥2 doigts) — invalide la sélection au release. */
-  let gesturedAsPinch = false;
-
-  const distanceOf = (a: Pointer, b: Pointer): number => Math.hypot(a.x - b.x, a.y - b.y);
-  const midpointOf = (a: Pointer, b: Pointer): { x: number; y: number } => ({
-    x: (a.x + b.x) / 2,
-    y: (a.y + b.y) / 2,
-  });
+  // Force touch-action en JS aussi : certains assemblages CSS sont ignorés par PixiJS qui
+  // pose son propre style sur le canvas. Sans ça, iOS interprète le pinch comme zoom de page.
+  canvas.style.touchAction = 'none';
 
   /** Zoome autour d'un point écran (anchor), en gardant le point du monde sous l'anchor fixe. */
   const zoomAt = (factor: number, anchorX: number, anchorY: number): void => {
@@ -51,73 +42,159 @@ export function attachCameraControls(
     camera.y = py - worldY * next;
   };
 
-  canvas.addEventListener('pointerdown', (e) => {
-    canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, {
-      x: e.clientX,
-      y: e.clientY,
-      startX: e.clientX,
-      startY: e.clientY,
-      startedAt: performance.now(),
-      moved: false,
-    });
-    if (pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      lastPinchDist = distanceOf(a!, b!);
-      gesturedAsPinch = true; // dès qu'un 2e doigt touche, le geste n'est plus une sélection
-    }
-  });
+  // --- Tactile (TouchEvent) -------------------------------------------------
+  // État du geste tactile en cours. `last1`/`last2` = position des doigts à l'event précédent.
+  let last1: { x: number; y: number } | null = null;
+  let last2: { x: number; y: number } | null = null;
+  let lastPinchDist = 0;
+  // Suivi du tap : départ + déplacement cumulé du premier doigt.
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchStartedAt = 0;
+  let touchMoved = false;
+  /** Vrai dès qu'un 2ᵉ doigt s'est posé pendant le geste — invalide le tap. */
+  let wasMultiTouch = false;
+  /** Indicateur global : un geste tactile est en cours (utilisé pour ignorer les `pointer*`
+   *  synthétisés que certains navigateurs émettent en parallèle des touches). */
+  let touchActive = false;
 
-  canvas.addEventListener('pointermove', (e) => {
-    const p = pointers.get(e.pointerId);
-    if (!p) return;
-    const prevX = p.x;
-    const prevY = p.y;
-    p.x = e.clientX;
-    p.y = e.clientY;
-    if (Math.abs(p.x - p.startX) + Math.abs(p.y - p.startY) > TAP_MAX_MOVE) p.moved = true;
-
-    if (pointers.size >= 2) {
-      // Pinch : deux doigts → ajuste le zoom et pan via le centre du segment.
-      const [a, b] = [...pointers.values()];
-      const dist = distanceOf(a!, b!);
-      const mid = midpointOf(a!, b!);
-      if (lastPinchDist > 0 && dist > 0) {
-        const factor = dist / lastPinchDist;
-        zoomAt(factor, mid.x, mid.y);
+  canvas.addEventListener(
+    'touchstart',
+    (e) => {
+      touchActive = true;
+      if (e.touches.length === 1) {
+        const t = e.touches[0]!;
+        last1 = { x: t.clientX, y: t.clientY };
+        last2 = null;
+        touchStartX = t.clientX;
+        touchStartY = t.clientY;
+        touchStartedAt = performance.now();
+        touchMoved = false;
+        wasMultiTouch = false;
+        lastPinchDist = 0;
+      } else if (e.touches.length >= 2) {
+        const a = e.touches[0]!;
+        const b = e.touches[1]!;
+        last1 = { x: a.clientX, y: a.clientY };
+        last2 = { x: b.clientX, y: b.clientY };
+        lastPinchDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        wasMultiTouch = true;
+        touchMoved = true; // un pinch n'est jamais un tap
       }
-      lastPinchDist = dist;
-      // Pan du centre : décalage du midpoint entre l'event précédent et celui-ci.
-      // On l'estime par la moyenne des déplacements des deux doigts ce frame.
-      const dxAvg = (p.x - prevX) / 2;
-      const dyAvg = (p.y - prevY) / 2;
-      camera.x += dxAvg;
-      camera.y += dyAvg;
-    } else if (pointers.size === 1) {
-      // Pan : 1 doigt / souris.
-      camera.x += p.x - prevX;
-      camera.y += p.y - prevY;
+      e.preventDefault();
+    },
+    { passive: false },
+  );
+
+  canvas.addEventListener(
+    'touchmove',
+    (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1 && last1) {
+        const t = e.touches[0]!;
+        const dx = t.clientX - last1.x;
+        const dy = t.clientY - last1.y;
+        camera.x += dx;
+        camera.y += dy;
+        last1 = { x: t.clientX, y: t.clientY };
+        if (Math.abs(t.clientX - touchStartX) + Math.abs(t.clientY - touchStartY) > TAP_MAX_MOVE) {
+          touchMoved = true;
+        }
+      } else if (e.touches.length >= 2) {
+        const a = e.touches[0]!;
+        const b = e.touches[1]!;
+        const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        const mid = { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 };
+        if (lastPinchDist > 0 && dist > 0) {
+          zoomAt(dist / lastPinchDist, mid.x, mid.y);
+        }
+        // Pan additionnel = déplacement du milieu entre les deux events.
+        if (last1 && last2) {
+          const oldMid = { x: (last1.x + last2.x) / 2, y: (last1.y + last2.y) / 2 };
+          camera.x += mid.x - oldMid.x;
+          camera.y += mid.y - oldMid.y;
+        }
+        last1 = { x: a.clientX, y: a.clientY };
+        last2 = { x: b.clientX, y: b.clientY };
+        lastPinchDist = dist;
+        wasMultiTouch = true;
+        touchMoved = true;
+      }
+    },
+    { passive: false },
+  );
+
+  const touchEnd = (e: TouchEvent) => {
+    if (e.touches.length === 0) {
+      // Tous les doigts levés : check tap (1 doigt, court, sans déplacement, sans pinch).
+      const dur = performance.now() - touchStartedAt;
+      if (!wasMultiTouch && !touchMoved && dur < TAP_MAX_DURATION_MS) {
+        onTap(touchStartX, touchStartY);
+      }
+      last1 = null;
+      last2 = null;
+      lastPinchDist = 0;
+      // Petit délai avant de réautoriser les events pointeur (iOS peut émettre un
+      // `mousedown` synthétisé après un tap, qu'on veut ignorer).
+      setTimeout(() => {
+        touchActive = false;
+      }, 100);
+    } else if (e.touches.length === 1) {
+      // Geste 2-doigts qui devient 1-doigt : on continue en pan, sans relancer un tap.
+      const t = e.touches[0]!;
+      last1 = { x: t.clientX, y: t.clientY };
+      last2 = null;
+      lastPinchDist = 0;
+      // touchMoved/wasMultiTouch restent vrais → release final ne génère pas de tap parasite.
+    }
+  };
+  canvas.addEventListener('touchend', touchEnd, { passive: true });
+  canvas.addEventListener('touchcancel', touchEnd, { passive: true });
+
+  // --- Souris (PointerEvent, hors `touch`) ---------------------------------
+  let mouseDragging = false;
+  let mouseLastX = 0;
+  let mouseLastY = 0;
+  let mouseStartX = 0;
+  let mouseStartY = 0;
+  let mouseStartedAt = 0;
+  let mouseMoved = false;
+
+  const isMouseLike = (e: PointerEvent) => e.pointerType !== 'touch' && !touchActive;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!isMouseLike(e)) return;
+    canvas.setPointerCapture(e.pointerId);
+    mouseDragging = true;
+    mouseLastX = e.clientX;
+    mouseLastY = e.clientY;
+    mouseStartX = e.clientX;
+    mouseStartY = e.clientY;
+    mouseStartedAt = performance.now();
+    mouseMoved = false;
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!isMouseLike(e) || !mouseDragging) return;
+    camera.x += e.clientX - mouseLastX;
+    camera.y += e.clientY - mouseLastY;
+    mouseLastX = e.clientX;
+    mouseLastY = e.clientY;
+    if (Math.abs(e.clientX - mouseStartX) + Math.abs(e.clientY - mouseStartY) > TAP_MAX_MOVE) {
+      mouseMoved = true;
     }
   });
-
-  const release = (e: PointerEvent) => {
-    const p = pointers.get(e.pointerId);
-    if (!p) return;
-    const wasSingle = pointers.size === 1; // un seul pointeur encore actif → c'est lui qui se lève
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) lastPinchDist = 0;
-    // Tap : un seul doigt, sans pinch concurrent, sans déplacement, et bref.
-    const duration = performance.now() - p.startedAt;
-    if (wasSingle && !gesturedAsPinch && !p.moved && duration < TAP_MAX_DURATION_MS) {
-      onTap(p.startX, p.startY);
+  const mouseEnd = (e: PointerEvent) => {
+    if (!isMouseLike(e) || !mouseDragging) return;
+    mouseDragging = false;
+    const dur = performance.now() - mouseStartedAt;
+    if (!mouseMoved && dur < TAP_MAX_DURATION_MS) {
+      onTap(mouseStartX, mouseStartY);
     }
-    if (pointers.size === 0) gesturedAsPinch = false;
   };
-  canvas.addEventListener('pointerup', release);
-  canvas.addEventListener('pointercancel', release);
-  // pointerleave est trop agressif quand on capture : on s'en remet à up/cancel.
+  canvas.addEventListener('pointerup', mouseEnd);
+  canvas.addEventListener('pointercancel', mouseEnd);
 
-  // Molette (desktop) : zoom centré sur le curseur, comportement inchangé.
+  // Molette (desktop) : zoom centré sur le curseur.
   canvas.addEventListener(
     'wheel',
     (e) => {
@@ -128,8 +205,9 @@ export function attachCameraControls(
     { passive: false },
   );
 
-  // Verrou de défense : certains navigateurs envoient encore des gestes natifs si on ne
-  // bloque pas explicitement (iOS Safari peut tenter un zoom de page malgré viewport).
+  // Verrous de défense (iOS Safari notamment).
   canvas.addEventListener('gesturestart', (e) => e.preventDefault());
+  canvas.addEventListener('gesturechange', (e) => e.preventDefault());
+  canvas.addEventListener('gestureend', (e) => e.preventDefault());
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
