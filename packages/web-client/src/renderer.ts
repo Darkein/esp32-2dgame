@@ -99,7 +99,8 @@ export class Renderer {
     this.app.stage.addChild(this.night);
     this.centerCamera();
     this.app.ticker.add(() => this.frame());
-    this.app.canvas.addEventListener('pointerdown', (e) => this.pick(e));
+    // La sélection est désormais pilotée par `pickAt`, appelé sur un *tap* depuis
+    // `attachCameraControls` (mobile-friendly : pas de sélection au début d'un drag/pinch).
   }
 
   private centerCamera(): void {
@@ -293,12 +294,17 @@ export class Renderer {
     }
   }
 
-  private pick(e: PointerEvent): void {
+  /** Sélectionne l'agent le plus proche d'un point écran (déclenché par un *tap*).
+   *  La tolérance de pick (en pixels écran) est plus large sur mobile pour permettre une
+   *  sélection au doigt sans précision millimétrique. */
+  pickAt(clientX: number, clientY: number): void {
     if (!this.latest) return;
-    const lx = e.clientX - this.world.x;
-    const ly = e.clientY - this.world.y;
+    const rect = this.app.canvas.getBoundingClientRect();
+    const lx = clientX - rect.left - this.world.x;
+    const ly = clientY - rect.top - this.world.y;
+    const coarse = matchMedia('(pointer: coarse)').matches; // doigt vs souris
     let best: AgentState | null = null;
-    let bestD = 28;
+    let bestD = coarse ? 48 : 28;
     for (const v of this.views.values()) {
       const d = Math.hypot(v.container.x * this.world.scale.x - lx, v.container.y * this.world.scale.y - ly);
       if (d < bestD) {

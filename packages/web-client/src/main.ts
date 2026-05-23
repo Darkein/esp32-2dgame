@@ -28,7 +28,7 @@ const MONTHS = [
 async function main() {
   const renderer = new Renderer();
   await renderer.init($('app'));
-  attachCameraControls(renderer.app.canvas, renderer.camera);
+  attachCameraControls(renderer.app.canvas, renderer.camera, (x, y) => renderer.pickAt(x, y));
 
   const voice = new VoiceManager();
   const choice = await chooseTransport();
