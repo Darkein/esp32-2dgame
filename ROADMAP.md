@@ -141,16 +141,27 @@ Activer le scaffold existant (`Agent.age`, `lifeStage`, `pregnant`, `partnerId`)
   `sim-core/src/entities.ts` (`isTeen`, champs `mentorId`/`learnedJob`/`apprenticeXp`),
   `sim-core/src/catalog.ts` (`TEEN_AGE`, `ELDER_ENERGY_CAP`, `FUNERAL_MEMORY_RADIUS`)
 
-## ⬜ Phase 10 — Santé, blessures, maladies *(P1)*
-- [ ] Stat `health` (0..1) par agent, séparée des besoins
-- [ ] **Maladies** transmissibles (rhume, fièvre) avec incubation et contagion par proximité
+## 🟦 Phase 10 — Santé, blessures, maladies *(P1)*
+- [x] Stat `health` (0..`HEALTH_MAX`) par agent, séparée des besoins (champ interne `Agent`)
+- [x] **Maladies** transmissibles (rhume, fièvre, maux d'estomac) avec **incubation**
+  (`ILLNESS_INCUBATION_SECONDS`) puis état **contagieux** ; **contagion par proximité**
+  (`CONTAGION_RADIUS`, taux exponentiel `1 - e^{-CONTAGION_RATE × dt}`)
+- [x] Effet **hygiène → santé** branché (très lent, ~5 ans de saleté chronique pour
+  dégrader pleinement — signal de fond, pas mortel à lui seul)
+- [x] **Mortalité par maladie** : santé ≤ 0 → mort (`stepLife` après `stepHealth`)
+- [x] **Fragilité** des enfants et aînés (`FRAGILE_FACTOR` = 1.8 sur onset + dégâts)
+- [x] **Guérison naturelle** si bonnes conditions (énergie & faim > 40 à terme),
+  récupération hors maladie quand l'hygiène est correcte
+- [x] **Sommeil restaure l'hygiène** (toilette + récupération du corps), évite la
+  dégradation infinie en attendant l'activité « wash » dédiée
 - [ ] **Blessures** (accidents de craft/chute) → soins requis
-- [ ] Effet **hygiène → santé** (besoin déjà présent, à brancher)
-- [ ] **Mortalité non vieillesse** : maladies graves chez aînés/enfants, accidents
 - [ ] Métier **soigneur/herboriste** : récolte plantes médicinales, prépare remèdes
 - [ ] Bâtiment **infirmerie**
 - [ ] Épidémies saisonnières (couplage Phase 11)
-- Fichiers : `sim-core/src/health.ts`, recettes plantes dans `catalog.ts`
+- [ ] Exposer `health` / `illness` au protocole (nécessite `flatc` pour `pnpm codegen`)
+- Fichiers : `sim-core/src/sim.ts` (`stepHealth`, `spreadIllness`, `stepHealthAll`),
+  `sim-core/src/entities.ts` (`Illness`, champs `health` / `illness`),
+  `sim-core/src/catalog.ts` (constantes santé), `sim-core/src/ai/needs.ts` (gain hygiène sommeil)
 
 ## ⬜ Phase 11 — Météo, saisons, climat *(P1)*
 - [ ] 4 saisons (printemps/été/automne/hiver) dérivées de `SimClock.month`

@@ -20,7 +20,10 @@ const DECAY: Needs = {
 const GAIN: Record<ActivityKind, Partial<Needs>> = {
   idle: {},
   walking: {},
-  sleeping: { energy: 100 / (7 * H) + DECAY.energy }, // recharge pleine en ~7 h
+  // Le sommeil compense aussi la décroissance d'hygiène (toilette du matin / corps qui
+  // récupère) : c'est ce qui empêche l'hygiène de descendre indéfiniment chez quelqu'un
+  // qui dort régulièrement, en attendant une vraie activité « wash » (Phase 19).
+  sleeping: { energy: 100 / (7 * H) + DECAY.energy, hygiene: DECAY.hygiene + 50 / (8 * H) },
   eating: { hunger: 100 / (20 * 60) + DECAY.hunger }, // rassasié en ~20 min
   working: { fun: -DECAY.fun * 0.5, energy: -DECAY.energy * 0.5 },
   crafting: { fun: 100 / (4 * H) },

@@ -17,15 +17,27 @@ import {
   buildingShape,
   BUILD_BY_KIND,
   CONCEPTION_RATE_PER_YEAR,
+  CONTAGION_RADIUS,
+  CONTAGION_RATE_PER_SEC,
   COUPLE_THRESHOLD,
   DECISION_INTERVAL_SECONDS,
   ELDER_ENERGY_CAP,
   FERTILE_MAX,
   FERTILE_MIN,
   FOOD_SATIETY,
+  FRAGILE_FACTOR,
   FUNERAL_MEMORY_RADIUS,
   GATHER_CADENCE_SECONDS,
   GESTATION_SECONDS,
+  HEALTH_DEATH_THRESHOLD,
+  HEALTH_DECAY_FROM_HYGIENE_PER_SEC,
+  HEALTH_MAX,
+  HEALTH_RECOVERY_PER_SEC,
+  HYGIENE_HEALTH_THRESHOLD,
+  ILLNESS_DAMAGE_PER_SEC,
+  ILLNESS_DURATION_SECONDS,
+  ILLNESS_INCUBATION_SECONDS,
+  ILLNESS_ONSET_PER_YEAR,
   JOB_PROFILES,
   LIFESPAN_MAX,
   LIFESPAN_MIN,
@@ -243,6 +255,8 @@ export class Simulation {
         mentorId: null,
         learnedJob: null,
         apprenticeXp: new Map(),
+        health: HEALTH_MAX,
+        illness: null,
       };
       this.agents.push(agent);
     }
@@ -276,6 +290,9 @@ export class Simulation {
       const subEnd = endTime - (nSubsteps - 1 - s) * subDt;
       // Échéances de tuiles arrivées à terme dans cette tranche (cultures, gisements).
       this.world.regrow(subEnd);
+      // Santé : exécutée à cette granularité (sinon l'effet hygiène/maladie subit le `dt`
+      // entier du tick à grande vitesse et tue tout le monde d'un coup).
+      this.stepHealthAll(subDt);
       for (const agent of this.agents) {
         stepNeeds(agent.state.needs, agent.state.activity, subDt);
 
@@ -668,6 +685,13 @@ export class Simulation {
         a.state.needs.energy = ELDER_ENERGY_CAP;
       }
 
+      // La santé est avancée par sous-étape dans `tick` (granularité fine) ; ici on
+      // ne fait que constater la mort par santé nulle.
+      if (a.health <= HEALTH_DEATH_THRESHOLD) {
+        dead.push(a.state.id);
+        continue;
+      }
+
       // Mort de vieillesse.
       if (age > a.lifespanYears) {
         dead.push(a.state.id);
@@ -755,6 +779,8 @@ export class Simulation {
       mentorId: null,
       learnedJob: null,
       apprenticeXp: new Map(),
+      health: HEALTH_MAX,
+      illness: null,
     };
     this.agents.push(agent);
     mother.memory.add(now, `Naissance de ${name}`, 9);
@@ -807,6 +833,87 @@ export class Simulation {
       const heir = this.agents.find((x) => x.parents?.includes(id) && !ids.includes(x.state.id));
       this.world.reassignOwner(id, heir ? heir.state.id : 0);
       this.agents.splice(idx, 1);
+    }
+  }
+
+  /** Avance la santé de tous les agents d'une sous-étape (granularité fine). */
+  private stepHealthAll(dt: number): void {
+    if (dt <= 0) return;
+    for (const a of this.agents) this.stepHealth(a, dt);
+  }
+
+  /** Santé (Phase 10) : effet hygiène, progression de la maladie, contagion, guérison.
+   *  Joue dans `stepLife` une fois par tick réel — `dt` = temps de jeu de ce tick.
+   *  À très haute vitesse (dt couvrant plusieurs jours), les probabilités utilisent
+   *  l'exponentielle (1 - e^{-rate·dt}) pour saturer à 1, et les dégâts d'une maladie
+   *  sont bornés par le temps réellement « actif » dans la fenêtre — sinon un seul tick
+   *  rapide pourrait tuer en une fois. */
+  private stepHealth(a: Agent, dt: number): void {
+    if (a.health <= HEALTH_DEATH_THRESHOLD) return; // déjà mort, ni récupération ni guérison
+    const fragile = a.state.lifeStage === 'enfant' || a.state.lifeStage === 'aine' ? FRAGILE_FACTOR : 1;
+    const now = this.clock.gameTime;
+
+    // 1) Effet de l'hygiène basse (dégradation lente, indépendante de la maladie).
+    if (a.state.needs.hygiene < HYGIENE_HEALTH_THRESHOLD) {
+      a.health -= HEALTH_DECAY_FROM_HYGIENE_PER_SEC * dt * fragile;
+    }
+
+    // 2) Maladie en cours : incubation → contagion, dégâts (bornés), fin de maladie.
+    if (a.illness) {
+      const elapsedStart = Math.max(0, now - dt - a.illness.sinceGameTime);
+      const elapsedEnd = now - a.illness.sinceGameTime;
+      if (!a.illness.contagious && elapsedEnd >= ILLNESS_INCUBATION_SECONDS) {
+        a.illness.contagious = true;
+        a.memory.add(now, `Je me sens malade (${a.illness.kind})`, 5);
+      }
+      // Dégâts : uniquement sur la portion de dt comprise dans la durée de la maladie.
+      if (elapsedStart < a.illness.durationSeconds) {
+        const activeDt = Math.min(dt, a.illness.durationSeconds - elapsedStart);
+        a.health -= ILLNESS_DAMAGE_PER_SEC * activeDt * fragile;
+      }
+      if (elapsedEnd >= a.illness.durationSeconds && a.state.needs.energy > 40 && a.state.needs.hunger > 40) {
+        a.memory.add(now, `Je suis guéri(e) de ${a.illness.kind}`, 4);
+        a.illness = null;
+        a.health = Math.min(HEALTH_MAX, a.health + 10);
+      } else if (a.illness.contagious) {
+        this.spreadIllness(a, dt);
+      }
+    } else {
+      // 3) Apparition spontanée (probabilité bornée par exp pour les longs dt).
+      const hygieneFactor = a.state.needs.hygiene < HYGIENE_HEALTH_THRESHOLD ? 2 : 1;
+      const rate = (ILLNESS_ONSET_PER_YEAR * hygieneFactor * fragile) / YEAR_SECONDS;
+      const prob = 1 - Math.exp(-rate * dt);
+      if (this.rng.chance(prob)) {
+        a.illness = {
+          kind: this.rng.pick(['rhume', 'fièvre', 'maux d\'estomac']),
+          sinceGameTime: now,
+          durationSeconds: ILLNESS_DURATION_SECONDS * (0.7 + this.rng.next() * 0.6),
+          contagious: false,
+        };
+      }
+    }
+
+    // 4) Récupération naturelle si pas malade et hygiène correcte.
+    if (!a.illness && a.state.needs.hygiene >= HYGIENE_HEALTH_THRESHOLD && a.health < HEALTH_MAX) {
+      a.health = Math.min(HEALTH_MAX, a.health + HEALTH_RECOVERY_PER_SEC * dt);
+    }
+  }
+
+  /** Contagion : chaque agent sain à portée a une probabilité d'être infecté. */
+  private spreadIllness(source: Agent, dt: number): void {
+    if (!source.illness) return;
+    const p = 1 - Math.exp(-CONTAGION_RATE_PER_SEC * dt);
+    for (const other of this.agents) {
+      if (other === source || other.illness) continue;
+      if (distance(other.state.pos, source.state.pos) > CONTAGION_RADIUS) continue;
+      if (this.rng.chance(p)) {
+        other.illness = {
+          kind: source.illness.kind,
+          sinceGameTime: this.clock.gameTime,
+          durationSeconds: ILLNESS_DURATION_SECONDS * (0.7 + this.rng.next() * 0.6),
+          contagious: false,
+        };
+      }
     }
   }
 

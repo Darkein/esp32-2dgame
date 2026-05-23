@@ -226,6 +226,36 @@ export const APPRENTICE_PROXIMITY_TILES = 3;
 /** Rayon (tuiles) du « souvenir partagé » lors d'une sépulture (mort = mémoire collective). */
 export const FUNERAL_MEMORY_RADIUS = 30;
 
+// --- Santé & maladies (Phase 10) -------------------------------------------
+
+/** Santé maximale (un agent en parfaite santé). */
+export const HEALTH_MAX = 100;
+/** Seuil d'hygiène sous lequel la santé se dégrade lentement. */
+export const HYGIENE_HEALTH_THRESHOLD = 30;
+/** Perte de santé par seconde de jeu quand l'hygiène est sous le seuil
+ *  (calibré pour ~5 ans de saleté chronique avant épuisement — signal de fond,
+ *  jamais un risque accidentel ; le wash explicite et l'aggravation viennent en Phase 19). */
+export const HEALTH_DECAY_FROM_HYGIENE_PER_SEC = HEALTH_MAX / (5 * 365 * 24 * 3600);
+/** Récupération de santé par seconde de jeu (hors maladie, hygiène ok). */
+export const HEALTH_RECOVERY_PER_SEC = HEALTH_MAX / (3 * 24 * 3600);
+/** Probabilité spontanée de tomber malade, par année de jeu (hors contagion). */
+export const ILLNESS_ONSET_PER_YEAR = 0.4;
+/** Rayon (tuiles) de contagion d'un agent malade contagieux. */
+export const CONTAGION_RADIUS = 2.5;
+/** Probabilité de contagion par seconde de jeu de proximité (cumulative). */
+export const CONTAGION_RATE_PER_SEC = 1 / (8 * 3600);
+/** Durée d'incubation d'une maladie avant qu'elle ne devienne contagieuse (s de jeu). */
+export const ILLNESS_INCUBATION_SECONDS = 0.5 * 24 * 3600;
+/** Durée moyenne d'une maladie après incubation (s de jeu, distribution exponentielle). */
+export const ILLNESS_DURATION_SECONDS = 5 * 24 * 3600;
+/** Multiplicateur de perte de santé par seconde quand l'agent est malade
+ *  (calibré pour ~10 hp sur une maladie typique de 5 jours, survivable). */
+export const ILLNESS_DAMAGE_PER_SEC = HEALTH_MAX / (50 * 24 * 3600);
+/** Santé en-deçà de laquelle un agent meurt (mortalité par maladie / épuisement). */
+export const HEALTH_DEATH_THRESHOLD = 0;
+/** Facteur de fragilité supplémentaire pour les enfants et les aînés (maladie + dégâts). */
+export const FRAGILE_FACTOR = 1.8;
+
 /** Prix d'équilibre indicatif (en pièces) ; le marché les fait varier selon l'offre. */
 export const BASE_PRICE: Record<string, number> = {
   eau: 1,

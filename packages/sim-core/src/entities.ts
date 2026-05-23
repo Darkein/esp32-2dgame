@@ -27,6 +27,18 @@ export interface Pregnancy {
   fatherId: number;
 }
 
+/** Maladie en cours sur un agent (Phase 10). */
+export interface Illness {
+  /** Étiquette interne (rhume, fièvre…). */
+  kind: string;
+  /** Temps de jeu (s) du début de l'infection. */
+  sinceGameTime: number;
+  /** Durée prévue (s) après laquelle la guérison est tentée. */
+  durationSeconds: number;
+  /** Vrai après la fin de l'incubation (l'agent peut contaminer autrui). */
+  contagious: boolean;
+}
+
 /** Données internes d'un agent (le wire `AgentState` n'en expose qu'une partie). */
 export interface Agent {
   state: AgentState;
@@ -77,6 +89,10 @@ export interface Agent {
   learnedJob: Job | null;
   /** Temps (s de jeu) cumulé en observation d'un mentor au travail, par métier. */
   apprenticeXp: Map<Job, number>;
+  /** Santé courante 0..HEALTH_MAX. 0 = mort (Phase 10). */
+  health: number;
+  /** Maladie en cours, ou null. */
+  illness: Illness | null;
 }
 
 /** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */
