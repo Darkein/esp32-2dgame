@@ -11,6 +11,7 @@ import { decideAction } from './ai/utility';
 import { choosePlan } from './ai/planner';
 import { Orchestrator } from './ai/orchestrator';
 import { findPath } from './ai/pathfind';
+import { bumpEmotion, decayEmotions, makeEmotions } from './ai/emotion';
 import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
@@ -265,6 +266,8 @@ export class Simulation {
         apprenticeXp: new Map(),
         health: HEALTH_MAX,
         illness: null,
+        emotions: makeEmotions(),
+        stress: 0,
       };
       this.agents.push(agent);
     }
@@ -301,6 +304,8 @@ export class Simulation {
       // Santé : exécutée à cette granularité (sinon l'effet hygiène/maladie subit le `dt`
       // entier du tick à grande vitesse et tue tout le monde d'un coup).
       this.stepHealthAll(subDt);
+      // Émotions : décroissance fine + impulsions liées aux besoins critiques.
+      this.stepEmotionsAll(subDt);
       for (const agent of this.agents) {
         stepNeeds(agent.state.needs, agent.state.activity, subDt);
 
@@ -814,10 +819,15 @@ export class Simulation {
       apprenticeXp: new Map(),
       health: HEALTH_MAX,
       illness: null,
+      emotions: makeEmotions(),
+      stress: 0,
     };
     this.agents.push(agent);
     mother.memory.add(now, `Naissance de ${name}`, 9);
     father.memory.add(now, `Naissance de ${name}`, 9);
+    // Naissance → grande joie partagée chez les parents.
+    bumpEmotion(mother.emotions, mother.personality, 'joie', 50);
+    bumpEmotion(father.emotions, father.personality, 'joie', 50);
     this.dialogueQueue.push({
       speakerId: mother.state.id,
       listenerId: 0,
@@ -848,6 +858,9 @@ export class Simulation {
         if (close || kin.has(x.state.id)) {
           const intensity = kin.has(x.state.id) ? 10 : 9;
           x.memory.add(now, `${a.state.name} est mort(e) à ${a.state.ageYears} ans`, intensity);
+          // Deuil : tristesse + peur (impulsion massive si proche, modérée sinon).
+          bumpEmotion(x.emotions, x.personality, 'tristesse', kin.has(x.state.id) ? 80 : 35);
+          bumpEmotion(x.emotions, x.personality, 'peur', kin.has(x.state.id) ? 30 : 12);
         }
       }
       if (kin.size > 0) {
@@ -873,6 +886,37 @@ export class Simulation {
   private stepHealthAll(dt: number): void {
     if (dt <= 0) return;
     for (const a of this.agents) this.stepHealth(a, dt);
+  }
+
+  /** Décroissance d'humeurs + impulsions liées au contexte courant (Phase 12).
+   *  Une fois par sous-étape : besoins critiques → peur/tristesse/colère, maladie en
+   *  cours → tristesse/peur, stress monte sous la faim chronique et le manque d'énergie. */
+  private stepEmotionsAll(dt: number): void {
+    if (dt <= 0) return;
+    for (const a of this.agents) {
+      decayEmotions(a.emotions, a.personality, dt);
+      const n = a.state.needs;
+      // Faim aiguë : irritation + tristesse persistantes.
+      if (n.hunger < 25) {
+        bumpEmotion(a.emotions, a.personality, 'colere', 0.001 * dt);
+        bumpEmotion(a.emotions, a.personality, 'tristesse', 0.0008 * dt);
+        a.stress = Math.min(100, a.stress + 0.0006 * dt);
+      }
+      // Épuisement : peur diffuse, stress monte.
+      if (n.energy < 20) {
+        bumpEmotion(a.emotions, a.personality, 'peur', 0.0006 * dt);
+        a.stress = Math.min(100, a.stress + 0.0005 * dt);
+      }
+      // Maladie : tristesse + peur (intensité modulée par la fragilité).
+      if (a.illness) {
+        bumpEmotion(a.emotions, a.personality, 'tristesse', 0.0007 * dt);
+        bumpEmotion(a.emotions, a.personality, 'peur', 0.0005 * dt);
+      }
+      // Repli vers le calme quand tout va bien.
+      if (n.hunger > 70 && n.energy > 60 && !a.illness) {
+        a.stress = Math.max(0, a.stress - 0.0003 * dt);
+      }
+    }
   }
 
   /** Santé (Phase 10) : effet hygiène, progression de la maladie, contagion, guérison.

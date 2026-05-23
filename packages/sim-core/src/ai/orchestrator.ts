@@ -2,6 +2,7 @@ import type { ActivityKind, DialogueEvent } from '@game/protocol';
 import type { LLMProvider } from '@game/llm';
 import type { Agent } from '../entities';
 import type { SimClock } from '../clock';
+import { dominantEmotion } from './emotion';
 
 const ACTION_MAP: Record<string, ActivityKind> = {
   dormir: 'sleeping',
@@ -41,12 +42,16 @@ export class Orchestrator {
   personaSummary(agent: Agent): string {
     const p = agent.personality;
     const t = (v: number) => (v > 0.66 ? 'élevé' : v > 0.33 ? 'moyen' : 'faible');
+    const mood = dominantEmotion(agent.emotions);
+    // Humeur seulement si nettement marquée (sinon ton neutre).
+    const moodTag = mood.value > 35 ? ` Humeur: ${mood.key} (${mood.value | 0}/100).` : '';
+    const stressTag = agent.stress > 60 ? ` Tu te sens très stressé(e).` : '';
     return (
       `Nom: ${agent.state.name}. ` +
       `Ouverture ${t(p.openness)}, application ${t(p.conscientiousness)}, ` +
       `extraversion ${t(p.extraversion)}, amabilité ${t(p.agreeableness)}, ` +
       `assiduité ${t(p.industriousness)}. ` +
-      `Aspirations: ${agent.aspirations.join(', ')}.`
+      `Aspirations: ${agent.aspirations.join(', ')}.${moodTag}${stressTag}`
     );
   }
 

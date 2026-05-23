@@ -1,4 +1,4 @@
-import type { ActivityKind, AgentState, LifeStage, Needs, Vec2 } from '@game/protocol';
+import type { ActivityKind, AgentState, Emotions, LifeStage, Needs, Vec2 } from '@game/protocol';
 import type { Job } from './catalog';
 import { ADULT_AGE, ELDER_AGE, TEEN_AGE } from './catalog';
 import type { MemoryStream } from './ai/memory';
@@ -93,6 +93,10 @@ export interface Agent {
   health: number;
   /** Maladie en cours, ou null. */
   illness: Illness | null;
+  /** Humeurs courantes 0..100 (Phase 12). */
+  emotions: Emotions;
+  /** Stress cumulé 0..100 (Phase 12). Au-dessus de 80 → fragilité et dialogue altéré. */
+  stress: number;
 }
 
 /** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */

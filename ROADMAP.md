@@ -183,14 +183,25 @@ Activer le scaffold existant (`Agent.age`, `lifeStage`, `pregnant`, `partnerId`)
   `sim-core/src/sim.ts` (`updateWeather`, vitesse de marche, blocages saison),
   `protocol/src/types.ts` (`Season`, `WeatherKind`, `WeatherState`)
 
-## ⬜ Phase 12 — Émotions & psychologie *(P1)*
+## 🟦 Phase 12 — Émotions & psychologie *(P1)*
 Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dialogue).
-- [ ] Humeurs : joie, tristesse, colère, peur, dégoût, surprise (vecteur 6D, décroissance)
-- [ ] **Stress** cumulatif (faim chronique, conflits, surcharge de travail)
-- [ ] **Trauma** : événement à très forte importance dans la mémoire (deuil, agression)
-- [ ] Neuroticism / extraversion (déjà présents) modulent amplitude et décroissance
-- [ ] Ambitions évolutives : succès accomplit l'aspiration → nouvelle ; échec → résignation
-- Fichiers : `sim-core/src/ai/emotion.ts`, lecture dans `orchestrator.ts` (prompt)
+- [x] **Humeurs** 6D (`joie`, `tristesse`, `colere`, `peur`, `degout`, `surprise`),
+  décroissance exponentielle vers une cible neutre (`decayEmotions`)
+- [x] **Stress** cumulatif (`Agent.stress` 0..100), monte avec faim aiguë / épuisement,
+  redescend quand tout va bien
+- [x] **Neuroticism / extraversion** modulent l'amplitude et la persistance
+  (`bumpEmotion`) — les anxieux gardent plus longtemps tristesse/peur
+- [x] **Événements déclencheurs** : maladie → tristesse/peur ; faim aiguë → colère ;
+  naissance → joie partagée chez les parents ; **deuil** → tristesse massive + peur
+- [x] **L'orchestrateur LLM lit l'humeur dominante** : `personaSummary` injecte
+  l'humeur & le stress dans tous les prompts (objectif, réplique, réponse au joueur)
+- [x] **Trauma persistant** via le flux mémoire existant (sépulture importance 10)
+- [ ] Ambitions évolutives : succès accomplit l'aspiration → nouvelle ; échec répété
+  → résignation
+- [ ] Exposer `emotions` / `stress` au protocole binaire (`pnpm codegen`)
+- Fichiers : `sim-core/src/ai/emotion.ts` (nouveau), `sim-core/src/sim.ts`
+  (`stepEmotionsAll`, impulsions sur événements), `sim-core/src/ai/orchestrator.ts`
+  (humeur dans le prompt), `protocol/src/types.ts` (`Emotions`)
 
 ## ⬜ Phase 13 — Relations sociales avancées *(P1)*
 - [ ] **Cour** : montée d'affinité → invitations, cadeaux, déclarations

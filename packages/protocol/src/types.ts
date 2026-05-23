@@ -54,6 +54,26 @@ export type LifeStage = 'enfant' | 'adulte' | 'aine';
 /** Saison dérivée du calendrier (mois 1-12). */
 export type Season = 'printemps' | 'ete' | 'automne' | 'hiver';
 
+/** Vecteur d'humeurs (Phase 12). Chaque composante 0..100, décroît naturellement. */
+export interface Emotions {
+  joie: number;
+  tristesse: number;
+  colere: number;
+  peur: number;
+  degout: number;
+  surprise: number;
+}
+
+export type EmotionKey = keyof Emotions;
+export const EMOTION_KEYS: readonly EmotionKey[] = [
+  'joie',
+  'tristesse',
+  'colere',
+  'peur',
+  'degout',
+  'surprise',
+];
+
 /** Type de météo journalière (Phase 11). */
 export type WeatherKind =
   | 'clair'
