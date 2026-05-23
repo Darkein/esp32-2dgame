@@ -51,6 +51,28 @@ export interface ItemStack {
 export type Gender = 'M' | 'F';
 export type LifeStage = 'enfant' | 'adulte' | 'aine';
 
+/** Saison dérivée du calendrier (mois 1-12). */
+export type Season = 'printemps' | 'ete' | 'automne' | 'hiver';
+
+/** Type de météo journalière (Phase 11). */
+export type WeatherKind =
+  | 'clair'
+  | 'nuage'
+  | 'pluie'
+  | 'orage'
+  | 'neige'
+  | 'brouillard'
+  | 'canicule';
+
+/** État météo courant. Renouvelé à chaque changement de journée. */
+export interface WeatherState {
+  kind: WeatherKind;
+  /** Temps de jeu (s) du début du phénomène. */
+  sinceGameTime: number;
+  /** Temps de jeu (s) jusqu'à la prochaine bascule possible. */
+  untilGameTime: number;
+}
+
 export interface AgentState {
   id: number;
   name: string;
@@ -120,6 +142,10 @@ export interface WorldSnapshot {
   dayCount: number;
   /** Date courante du calendrier (affichage). */
   date: GameDate;
+  /** Saison courante (dérivée du mois). */
+  season?: Season;
+  /** Météo courante (renouvelée à chaque journée). */
+  weather?: WeatherState;
   agents: AgentState[];
   items: ItemState[];
   buildings: BuildingState[];

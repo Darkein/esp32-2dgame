@@ -1,8 +1,9 @@
-import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender } from '@game/protocol';
+import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender, WeatherState } from '@game/protocol';
 import type { LLMProvider } from '@game/llm';
 import { World } from './world';
 import { SimClock, GAME_SECONDS_PER_DAY } from './clock';
 import { Rng } from './rng';
+import { makeWeather, rollWeather, WEATHER_EFFECTS } from './weather';
 import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance, lifeStageFor, isTeen } from './entities';
 import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
@@ -85,6 +86,8 @@ export class Simulation {
   readonly market = new Market();
   /** Centres des hameaux pré-amorcés (spawns + ancrage des constructions). */
   readonly villages: Vec2[] = [];
+  /** Météo courante (renouvelée chaque jour selon la saison). */
+  weather: WeatherState;
   private readonly rng: Rng;
   private readonly orchestrator: Orchestrator;
   private readonly dialogueQueue: DialogueEvent[] = [];
@@ -103,6 +106,11 @@ export class Simulation {
     const center = this.villages[0]!;
     this.placeBuilding('marche', center);
     this.spawnAgents(opts.agentCount ?? 8);
+    this.weather = makeWeather(
+      rollWeather(this.clock.season, this.rng),
+      this.clock.gameTime,
+      GAME_SECONDS_PER_DAY,
+    );
   }
 
   /** Pré-amorce 2-3 centres de village dispersés (quadrants opposés).
@@ -325,10 +333,20 @@ export class Simulation {
       if (agent.state.saying && this.clock.tick >= agent.sayingUntilTick) agent.state.saying = '';
     }
 
+    // Météo : renouvelée à chaque bord de journée (selon la saison courante).
+    this.updateWeather();
+
     // Cycle de la vie : vieillissement, couples, grossesses, naissances, morts.
     this.stepLife(dtTotal);
 
     return this.drainDialogues();
+  }
+
+  /** Renouvelle la météo si la fenêtre courante est expirée. */
+  private updateWeather(): void {
+    if (this.clock.gameTime < this.weather.untilGameTime) return;
+    const kind = rollWeather(this.clock.season, this.rng);
+    this.weather = makeWeather(kind, this.clock.gameTime, GAME_SECONDS_PER_DAY);
   }
 
   private stepMovement(agent: Agent, dt: number, now: number): void {
@@ -360,7 +378,9 @@ export class Simulation {
       const dy = wp.y - pos.y;
       const d = Math.hypot(dx, dy) || 1;
       // Pas borné à la distance restante (évite le dépassement en avance rapide).
-      const step = Math.min(WALK_TILES_PER_GAME_SEC * dt, d);
+      // Météo : pluie/neige/etc. ralentissent la marche (cf. `WEATHER_EFFECTS`).
+      const weatherSpeed = WEATHER_EFFECTS[this.weather.kind].walkSpeed;
+      const step = Math.min(WALK_TILES_PER_GAME_SEC * weatherSpeed * dt, d);
       const prevTx = Math.round(pos.x);
       const prevTy = Math.round(pos.y);
       pos.x += (dx / d) * step;
@@ -415,12 +435,14 @@ export class Simulation {
       // Récolter son propre champ mûr, sinon semer sur son champ libre.
       const ripe = this.world.findOwnedFarm(pos, 'champ_mur', id);
       if (ripe) return ripe;
-      if (has('graine') >= 1) {
+      // Saisons / météo : on ne sème pas en hiver (rien ne pousse) ni en canicule.
+      const canSow = this.clock.season !== 'hiver' && this.weather.kind !== 'canicule';
+      if (canSow && has('graine') >= 1) {
         const empty = this.world.findOwnedFarm(pos, 'farm', id);
         if (empty) return empty;
       }
       // Étendre son exploitation : labourer une nouvelle parcelle proche du domicile.
-      if (this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
+      if (canSow && this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
         const spot = this.world.findCultivable(agent.home);
         if (spot) return spot;
       }
@@ -467,13 +489,24 @@ export class Simulation {
           agent.memory.add(this.clock.tick, `J'ai récolté ${ble} blé`, 3);
           acted = true;
         }
-      } else if (tile === 'farm' && this.world.farmOwnerAt(x, y) === id && count(agent.inventory, 'graine') >= 1) {
+      } else if (
+        tile === 'farm' &&
+        this.world.farmOwnerAt(x, y) === id &&
+        count(agent.inventory, 'graine') >= 1 &&
+        this.clock.season !== 'hiver' &&
+        this.weather.kind !== 'canicule'
+      ) {
         if (this.world.plant(x, y, now)) {
           take(agent.inventory, 'graine', 1);
           agent.memory.add(this.clock.tick, "J'ai semé un champ", 2);
           acted = true;
         }
-      } else if (profile.farms && (tile === 'grass' || tile === 'dirt') && this.world.countFarms(id) < MAX_FARMS_PER_AGENT) {
+      } else if (
+        profile.farms &&
+        (tile === 'grass' || tile === 'dirt') &&
+        this.world.countFarms(id) < MAX_FARMS_PER_AGENT &&
+        this.clock.season !== 'hiver'
+      ) {
         if (this.world.cultivate(x, y, id)) {
           agent.memory.add(this.clock.tick, "J'ai labouré un nouveau champ", 4);
           acted = true;
@@ -976,6 +1009,8 @@ export class Simulation {
       gameTime: this.clock.gameTime,
       dayCount: this.clock.dayCount,
       date: this.clock.date,
+      season: this.clock.season,
+      weather: { ...this.weather },
       agents: this.agents.map((a) => ({
         ...a.state,
         pos: { x: a.state.pos.x, y: a.state.pos.y },

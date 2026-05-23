@@ -163,17 +163,25 @@ Activer le scaffold existant (`Agent.age`, `lifeStage`, `pregnant`, `partnerId`)
   `sim-core/src/entities.ts` (`Illness`, champs `health` / `illness`),
   `sim-core/src/catalog.ts` (constantes santé), `sim-core/src/ai/needs.ts` (gain hygiène sommeil)
 
-## ⬜ Phase 11 — Météo, saisons, climat *(P1)*
-- [ ] 4 saisons (printemps/été/automne/hiver) dérivées de `SimClock.month`
-- [ ] Cultures dépendantes : blé pousse printemps→été, dort hiver
-- [ ] **Météo** stochastique journalière : ensoleillé, pluie, orage, neige, brouillard, canicule
-- [ ] Pluie → arrose champs (compteur d'eau de la tuile), ralentit déplacements
-- [ ] Sécheresse → cultures meurent, marché en tension
-- [ ] Hiver → besoin chauffage (consomme bois), pas de récolte, stocks vitaux
-- [ ] Tempête / foudre → dégâts ponctuels à bâtiments en bois
-- [ ] Rendu : teinte globale + particules pluie/neige (`web-client/src/renderer.ts`)
-- [ ] Protocole : `WeatherState` dans `world.fbs` (codegen)
-- Fichiers : `sim-core/src/weather.ts`, extension `clock.ts`, `world.fbs`
+## 🟦 Phase 11 — Météo, saisons, climat *(P1)*
+- [x] 4 saisons (printemps/été/automne/hiver) dérivées de `SimClock.season`
+- [x] Démarrage par défaut au **printemps** (sim/test fluides — l'hiver est jouable
+  via `new SimClock(15, 8, 0)`)
+- [x] **Météo** stochastique journalière (`WEATHER_EFFECTS` & distributions par saison) :
+  `clair`, `nuage`, `pluie`, `orage`, `neige`, `brouillard`, `canicule`
+- [x] Pluie/neige/orage **ralentissent les déplacements** (`weatherSpeed`)
+- [x] **Pas de semis ni de labour en hiver** (ni en canicule pour les semis) — bloqué
+  côté `workTarget` et `advanceWork`
+- [x] Snapshot expose `season` et `weather` (types TS `Season` / `WeatherState`)
+- [ ] Cultures **accélérées par la pluie** / stoppées par la canicule (réécriture des
+  transitions de `world.regrow` selon `WEATHER_EFFECTS.cropGrowth`)
+- [ ] Hiver → **besoin chauffage** (consomme bois ; sinon malus santé sur enfants/aînés)
+- [ ] Tempête / foudre → dégâts ponctuels à bâtiments en bois (couplage Phase 19)
+- [ ] **Rendu** : teinte globale + particules pluie/neige (`web-client/src/renderer.ts`)
+- [ ] Étendre `world.fbs` (saison + météo binaires) et `pnpm codegen`
+- Fichiers : `sim-core/src/weather.ts`, extension `clock.ts` (`season`),
+  `sim-core/src/sim.ts` (`updateWeather`, vitesse de marche, blocages saison),
+  `protocol/src/types.ts` (`Season`, `WeatherKind`, `WeatherState`)
 
 ## ⬜ Phase 12 — Émotions & psychologie *(P1)*
 Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dialogue).

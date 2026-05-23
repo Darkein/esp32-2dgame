@@ -15,7 +15,7 @@ describe('SimClock', () => {
   });
 
   it('expose date et compteur de jours dérivés du temps de jeu', () => {
-    const c = new SimClock(15, 0); // démarre à l'an 1, jour 1, 00:00
+    const c = new SimClock(15, 0, 0); // démarre à l'an 1, jour 1, 00:00
     expect(c.dayCount).toBe(0);
     expect(c.date).toEqual({ year: 1, month: 1, day: 1 });
     // Avance d'exactement 40 jours de jeu (40 × 86400 s à vitesse 1×).
