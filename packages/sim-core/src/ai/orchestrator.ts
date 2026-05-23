@@ -208,7 +208,7 @@ export class Orchestrator {
     if (isOrder && accepted && activity) {
       this.bias.set(agent.state.id, activity);
       agent.intent = activity;
-      agent.actionUntilTick = clock.tick; // agit immédiatement
+      agent.actionUntilGameTime = clock.gameTime; // agit immédiatement
       agent.state.goal = `obéir au joueur (${activity})`;
     }
     this.onDialogue({ speakerId: agent.state.id, listenerId: 0, text, voiceProfile: agent.state.voiceProfile });

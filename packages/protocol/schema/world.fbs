@@ -65,6 +65,10 @@ table AgentState {
   houses:uint;           // bâtiments construits (aspiration logement)
   job:string;            // métier (fermier, bucheron, mineur, artisan, boulanger…)
   coins:uint;            // monnaie détenue (économie de marché)
+  gender:ubyte;          // 0 = homme, 1 = femme
+  age_years:uint;        // âge en années de jeu
+  life_stage:ubyte;      // 0 = enfant, 1 = adulte, 2 = aîné
+  partner_id:uint;       // id du/de la conjoint(e), 0 = célibataire
 }
 
 table ItemState {
@@ -90,6 +94,11 @@ table TileChunk {
 table WorldSnapshot {
   tick:ulong;
   time_of_day:float;     // 0..24 heures
+  game_time:double;      // secondes de jeu écoulées (base des durées du monde)
+  day_count:uint;        // jours de jeu écoulés
+  date_year:uint;        // calendrier : année
+  date_month:ubyte;      // calendrier : mois (1..12)
+  date_day:ubyte;        // calendrier : jour (1..31)
   agents:[AgentState];
   items:[ItemState];
   buildings:[BuildingState];
@@ -126,6 +135,10 @@ table ChatToAgent {
   is_order:bool;
 }
 
+table SetSpeed {
+  scale:float;           // 0 = pause, 1 = base, >1 = accéléré
+}
+
 // --- Enveloppes (unions) ---------------------------------------------------
 
 union ServerPayload { WorldSnapshot, DialogueEvent, AudioEvent }
@@ -134,7 +147,7 @@ table ServerMessage {
   payload:ServerPayload;
 }
 
-union ClientPayload { Hello, ChatToAgent }
+union ClientPayload { Hello, ChatToAgent, SetSpeed }
 
 table ClientMessage {
   payload:ClientPayload;

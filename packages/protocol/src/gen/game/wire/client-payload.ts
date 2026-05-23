@@ -2,35 +2,39 @@
 
 import { ChatToAgent } from '../../game/wire/chat-to-agent';
 import { Hello } from '../../game/wire/hello';
+import { SetSpeed } from '../../game/wire/set-speed';
 
 
 export enum ClientPayload {
   NONE = 0,
   Hello = 1,
-  ChatToAgent = 2
+  ChatToAgent = 2,
+  SetSpeed = 3
 }
 
 export function unionToClientPayload(
   type: ClientPayload,
-  accessor: (obj:ChatToAgent|Hello) => ChatToAgent|Hello|null
-): ChatToAgent|Hello|null {
+  accessor: (obj:ChatToAgent|Hello|SetSpeed) => ChatToAgent|Hello|SetSpeed|null
+): ChatToAgent|Hello|SetSpeed|null {
   switch(ClientPayload[type]) {
     case 'NONE': return null; 
     case 'Hello': return accessor(new Hello())! as Hello;
     case 'ChatToAgent': return accessor(new ChatToAgent())! as ChatToAgent;
+    case 'SetSpeed': return accessor(new SetSpeed())! as SetSpeed;
     default: return null;
   }
 }
 
 export function unionListToClientPayload(
   type: ClientPayload, 
-  accessor: (index: number, obj:ChatToAgent|Hello) => ChatToAgent|Hello|null, 
+  accessor: (index: number, obj:ChatToAgent|Hello|SetSpeed) => ChatToAgent|Hello|SetSpeed|null, 
   index: number
-): ChatToAgent|Hello|null {
+): ChatToAgent|Hello|SetSpeed|null {
   switch(ClientPayload[type]) {
     case 'NONE': return null; 
     case 'Hello': return accessor(index, new Hello())! as Hello;
     case 'ChatToAgent': return accessor(index, new ChatToAgent())! as ChatToAgent;
+    case 'SetSpeed': return accessor(index, new SetSpeed())! as SetSpeed;
     default: return null;
   }
 }

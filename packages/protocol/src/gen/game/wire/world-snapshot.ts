@@ -36,43 +36,68 @@ timeOfDay():number {
   return offset ? this.bb!.readFloat32(this.bb_pos + offset) : 0.0;
 }
 
-agents(index: number, obj?:AgentState):AgentState|null {
+gameTime():number {
   const offset = this.bb!.__offset(this.bb_pos, 8);
+  return offset ? this.bb!.readFloat64(this.bb_pos + offset) : 0.0;
+}
+
+dayCount():number {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+dateYear():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.readUint32(this.bb_pos + offset) : 0;
+}
+
+dateMonth():number {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
+dateDay():number {
+  const offset = this.bb!.__offset(this.bb_pos, 16);
+  return offset ? this.bb!.readUint8(this.bb_pos + offset) : 0;
+}
+
+agents(index: number, obj?:AgentState):AgentState|null {
+  const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? (obj || new AgentState()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
 agentsLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 8);
+  const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 items(index: number, obj?:ItemState):ItemState|null {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 20);
   return offset ? (obj || new ItemState()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
 itemsLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 10);
+  const offset = this.bb!.__offset(this.bb_pos, 20);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 buildings(index: number, obj?:BuildingState):BuildingState|null {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
+  const offset = this.bb!.__offset(this.bb_pos, 22);
   return offset ? (obj || new BuildingState()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
 buildingsLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 12);
+  const offset = this.bb!.__offset(this.bb_pos, 22);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 chunk(obj?:TileChunk):TileChunk|null {
-  const offset = this.bb!.__offset(this.bb_pos, 14);
+  const offset = this.bb!.__offset(this.bb_pos, 24);
   return offset ? (obj || new TileChunk()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
 static startWorldSnapshot(builder:flatbuffers.Builder) {
-  builder.startObject(6);
+  builder.startObject(11);
 }
 
 static addTick(builder:flatbuffers.Builder, tick:bigint) {
@@ -83,8 +108,28 @@ static addTimeOfDay(builder:flatbuffers.Builder, timeOfDay:number) {
   builder.addFieldFloat32(1, timeOfDay, 0.0);
 }
 
+static addGameTime(builder:flatbuffers.Builder, gameTime:number) {
+  builder.addFieldFloat64(2, gameTime, 0.0);
+}
+
+static addDayCount(builder:flatbuffers.Builder, dayCount:number) {
+  builder.addFieldInt32(3, dayCount, 0);
+}
+
+static addDateYear(builder:flatbuffers.Builder, dateYear:number) {
+  builder.addFieldInt32(4, dateYear, 0);
+}
+
+static addDateMonth(builder:flatbuffers.Builder, dateMonth:number) {
+  builder.addFieldInt8(5, dateMonth, 0);
+}
+
+static addDateDay(builder:flatbuffers.Builder, dateDay:number) {
+  builder.addFieldInt8(6, dateDay, 0);
+}
+
 static addAgents(builder:flatbuffers.Builder, agentsOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(2, agentsOffset, 0);
+  builder.addFieldOffset(7, agentsOffset, 0);
 }
 
 static createAgentsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
@@ -100,7 +145,7 @@ static startAgentsVector(builder:flatbuffers.Builder, numElems:number) {
 }
 
 static addItems(builder:flatbuffers.Builder, itemsOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(3, itemsOffset, 0);
+  builder.addFieldOffset(8, itemsOffset, 0);
 }
 
 static createItemsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
@@ -116,7 +161,7 @@ static startItemsVector(builder:flatbuffers.Builder, numElems:number) {
 }
 
 static addBuildings(builder:flatbuffers.Builder, buildingsOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(4, buildingsOffset, 0);
+  builder.addFieldOffset(9, buildingsOffset, 0);
 }
 
 static createBuildingsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
@@ -132,7 +177,7 @@ static startBuildingsVector(builder:flatbuffers.Builder, numElems:number) {
 }
 
 static addChunk(builder:flatbuffers.Builder, chunkOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(5, chunkOffset, 0);
+  builder.addFieldOffset(10, chunkOffset, 0);
 }
 
 static endWorldSnapshot(builder:flatbuffers.Builder):flatbuffers.Offset {

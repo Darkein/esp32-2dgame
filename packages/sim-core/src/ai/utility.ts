@@ -47,6 +47,8 @@ export function decideAction(
   const n = agent.state.needs;
   const p = agent.personality;
   const candidates: Candidate[] = [];
+  // Les enfants ne travaillent ni ne commercent : ils mangent, dorment, jouent, socialisent.
+  const isChild = agent.state.lifeStage === 'enfant';
 
   // Dormir — fort la nuit et quand l'énergie est basse.
   candidates.push({
@@ -63,13 +65,15 @@ export function decideAction(
   // Travailler — récolter/cultiver. La cible précise (gisement, champ) est résolue par
   // la simulation (`sim.workTarget`) ; ici on ne fait que pondérer l'envie de travailler.
   const workHours = clock.timeOfDay >= 8 && clock.timeOfDay <= 18;
-  candidates.push({
-    score:
-      (workHours ? 0.9 : 0.05) * (0.5 + p.industriousness) * (0.5 + p.conscientiousness) -
-      norm(n.energy) * 0.5 -
-      norm(n.hunger) * 0.5,
-    decision: { activity: 'working', target: agent.workplace, reason: 'récolter des ressources' },
-  });
+  if (!isChild) {
+    candidates.push({
+      score:
+        (workHours ? 0.9 : 0.05) * (0.5 + p.industriousness) * (0.5 + p.conscientiousness) -
+        norm(n.energy) * 0.5 -
+        norm(n.hunger) * 0.5,
+      decision: { activity: 'working', target: agent.workplace, reason: 'récolter des ressources' },
+    });
+  }
 
   // Socialiser — selon l'extraversion et le besoin social.
   const other = nearestAgent(agent, agents);
@@ -87,7 +91,7 @@ export function decideAction(
   });
 
   // Commercer — aller au marché si l'on a des surplus à vendre ou faim sans nourriture.
-  const market = world.findBuilding('marche', agent.state.pos);
+  const market = isChild ? null : world.findBuilding('marche', agent.state.pos);
   if (market) {
     let surplus = 0;
     for (const [k, q] of agent.inventory) if (k !== 'pain' && k !== 'ble') surplus += Math.max(0, q - 4);

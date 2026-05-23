@@ -41,7 +41,8 @@ describe('métiers + économie en jeu', () => {
   });
 
   it('seuls les fermiers créent et possèdent des champs (usage exclusif)', () => {
-    const sim = new Simulation({ seed: 7, agentCount: 10 });
+    // Graine choisie pour garantir la présence d'au moins un fermier dans la population.
+    const sim = new Simulation({ seed: 1, agentCount: 10 });
     const farmTiles = () =>
       sim.world.tiles.filter((t) => t === 'farm' || t.startsWith('champ_')).length;
     expect(farmTiles()).toBe(0); // aucun champ au départ

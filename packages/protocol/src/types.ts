@@ -47,6 +47,9 @@ export interface ItemStack {
   count: number;
 }
 
+export type Gender = 'M' | 'F';
+export type LifeStage = 'enfant' | 'adulte' | 'aine';
+
 export interface AgentState {
   id: number;
   name: string;
@@ -64,6 +67,14 @@ export interface AgentState {
   job: string;
   /** Monnaie détenue (économie de marché). */
   coins: number;
+  /** Sexe (couples hétéro requis pour procréer). */
+  gender: Gender;
+  /** Âge en années de jeu (entier). */
+  ageYears: number;
+  /** Étape de vie dérivée de l'âge. */
+  lifeStage: LifeStage;
+  /** Id du/de la conjoint(e), 0 si célibataire. */
+  partnerId: number;
 }
 
 export interface ItemState {
@@ -87,9 +98,22 @@ export interface TileChunk {
   tiles: TileType[];
 }
 
+/** Date du calendrier du village (année/mois/jour, 1-indexés). */
+export interface GameDate {
+  year: number;
+  month: number;
+  day: number;
+}
+
 export interface WorldSnapshot {
   tick: number;
   timeOfDay: number; // 0..24
+  /** Temps de jeu écoulé, en secondes de jeu (base de toutes les durées du monde). */
+  gameTime: number;
+  /** Nombre de jours de jeu écoulés depuis le début. */
+  dayCount: number;
+  /** Date courante du calendrier (affichage). */
+  date: GameDate;
   agents: AgentState[];
   items: ItemState[];
   buildings: BuildingState[];
@@ -120,7 +144,13 @@ export interface ChatToAgentMessage {
   isOrder: boolean;
 }
 
-export type ClientMessage = HelloMessage | ChatToAgentMessage;
+/** Règle la vitesse d'écoulement du temps (0 = pause, 1 = base, >1 = accéléré). */
+export interface SetSpeedMessage {
+  t: 'speed';
+  scale: number;
+}
+
+export type ClientMessage = HelloMessage | ChatToAgentMessage | SetSpeedMessage;
 
 export interface SnapshotMessage {
   t: 'snapshot';

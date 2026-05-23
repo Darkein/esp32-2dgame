@@ -6,7 +6,8 @@ import { TILE_RESOURCE, TILE_STOCK, TILE_REGROW_DAYS, FARM_GROW_DAYS } from './c
 interface TileTransition {
   index: number;
   to: TileType;
-  atTick: number;
+  /** Échéance, en secondes de jeu. */
+  atGameTime: number;
   stock?: number;
 }
 
@@ -32,8 +33,8 @@ export class World {
     readonly width: number,
     readonly height: number,
     rng: Rng,
-    /** Durée d'une journée en ticks (pour calibrer repousse/croissance). */
-    private readonly ticksPerDay = 3600,
+    /** Durée d'une journée en secondes de jeu (pour calibrer repousse/croissance). */
+    private readonly secondsPerDay = 86_400,
   ) {
     this.tiles = new Array(width * height).fill('grass');
     this.generate(rng);
@@ -113,7 +114,7 @@ export class World {
   /** Récolte la ressource de la tuile (x,y) si possible. Renvoie le `kind` ou null.
    *  Les gisements s'épuisent puis sont programmés pour repousser ; l'eau (puisée
    *  depuis une tuile adjacente) est une source renouvelable. */
-  harvest(x: number, y: number, tick: number): string | null {
+  harvest(x: number, y: number, gameTime: number): string | null {
     const t = this.tileAt(x, y);
     const resource = TILE_RESOURCE[t as keyof typeof TILE_RESOURCE];
     if (resource) {
@@ -127,7 +128,7 @@ export class World {
         this.transitions.push({
           index: i,
           to: t,
-          atTick: tick + Math.round(days * this.ticksPerDay),
+          atGameTime: gameTime + days * this.secondsPerDay,
           stock: TILE_STOCK[t as keyof typeof TILE_STOCK],
         });
       } else {
@@ -211,14 +212,14 @@ export class World {
   }
 
   /** Sème une graine sur un champ labouré (x,y). Programme la croissance. */
-  plant(x: number, y: number, tick: number): boolean {
+  plant(x: number, y: number, gameTime: number): boolean {
     if (this.tileAt(x, y) !== 'farm') return false;
     const i = this.idx(x, y);
     this.set(x, y, 'champ_seme');
     this.dirty = true;
-    const g = FARM_GROW_DAYS * this.ticksPerDay;
-    this.transitions.push({ index: i, to: 'champ_pousse', atTick: tick + Math.round(g / 2) });
-    this.transitions.push({ index: i, to: 'champ_mur', atTick: tick + Math.round(g) });
+    const g = FARM_GROW_DAYS * this.secondsPerDay;
+    this.transitions.push({ index: i, to: 'champ_pousse', atGameTime: gameTime + g / 2 });
+    this.transitions.push({ index: i, to: 'champ_mur', atGameTime: gameTime + g });
     return true;
   }
 
@@ -231,9 +232,9 @@ export class World {
   }
 
   /** Applique les transitions de tuiles arrivées à échéance (repousse + croissance). */
-  regrow(tick: number): void {
+  regrow(gameTime: number): void {
     if (this.transitions.length === 0) return;
-    const due = this.transitions.filter((tr) => tr.atTick <= tick);
+    const due = this.transitions.filter((tr) => tr.atGameTime <= gameTime);
     if (due.length === 0) return;
     for (const tr of due) {
       const x = tr.index % this.width;
@@ -246,7 +247,7 @@ export class World {
       if (tr.stock != null) this.stock.set(tr.index, tr.stock);
       this.dirty = true;
     }
-    this.transitions = this.transitions.filter((tr) => tr.atTick > tick);
+    this.transitions = this.transitions.filter((tr) => tr.atGameTime > gameTime);
   }
 
   // --- Recherche / divers ---------------------------------------------------
@@ -327,6 +328,12 @@ export class World {
     const b: BuildingState = { id: this.nextEntityId++, kind, pos, owner };
     this.buildings.push(b);
     return b;
+  }
+
+  /** Réattribue bâtiments et champs d'un propriétaire à un autre (héritage ; 0 = public). */
+  reassignOwner(oldOwner: number, newOwner: number): void {
+    for (const b of this.buildings) if (b.owner === oldOwner) b.owner = newOwner;
+    for (const [i, o] of this.farmOwner) if (o === oldOwner) this.farmOwner.set(i, newOwner);
   }
 
   /** Cherche une tuile marchable proche d'un point (spirale). */

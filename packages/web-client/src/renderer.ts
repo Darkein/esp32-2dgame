@@ -51,7 +51,14 @@ export class Renderer {
   private views = new Map<number, AgentView>();
   private buildingViews = new Map<number, { container: Container; kind: string }>();
   private latest: WorldSnapshot | null = null;
+  /** Vitesse de la simulation (1× = base) ; pilote la rapidité d'interpolation visuelle. */
+  private speed = 1;
   onSelect: (agent: AgentState) => void = () => {};
+
+  /** Règle la vitesse perçue par le rendu : au-delà de ~5× les agents "snappent" sur leur cible. */
+  setSpeed(scale: number): void {
+    this.speed = Math.max(0, scale);
+  }
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({ background: 0x1a1f2b, resizeTo: window, antialias: true });
@@ -172,10 +179,12 @@ export class Renderer {
   }
 
   private frame(): void {
-    // Interpolation fluide vers les positions cibles + tri par profondeur.
+    // Plus la vitesse de simulation est élevée, plus on rattrape vite la cible
+    // (au-delà de ~5× les agents « snappent » sur leur position).
+    const k = Math.min(1, 0.2 * Math.max(1, this.speed));
     for (const v of this.views.values()) {
-      v.container.x += (v.target.x - v.container.x) * 0.2;
-      v.container.y += (v.target.y - v.container.y) * 0.2;
+      v.container.x += (v.target.x - v.container.x) * k;
+      v.container.y += (v.target.y - v.container.y) * k;
       v.container.zIndex = v.container.y;
     }
     this.agentLayer.sortableChildren = true;

@@ -5,6 +5,8 @@ export interface Transport {
   onSnapshot(cb: (s: WorldSnapshot) => void): void;
   onDialogue(cb: (e: DialogueEvent) => void): void;
   sendChat(agentId: number, text: string, isOrder: boolean): void;
+  /** Règle la vitesse d'écoulement du temps (0 = pause, 1 = base, >1 = accéléré). */
+  sendSpeed(scale: number): void;
   start(): void;
   readonly label: string;
 }
@@ -24,6 +26,7 @@ abstract class BaseTransport implements Transport {
     else if (msg.t === 'dialogue') this.dialogueCb(msg.event);
   }
   abstract sendChat(agentId: number, text: string, isOrder: boolean): void;
+  abstract sendSpeed(scale: number): void;
   abstract start(): void;
 }
 
@@ -41,6 +44,10 @@ export class WorkerTransport extends BaseTransport {
   }
   sendChat(agentId: number, text: string, isOrder: boolean): void {
     const msg: ClientMessage = { t: 'chat', agentId, text, isOrder };
+    this.worker.postMessage(msg);
+  }
+  sendSpeed(scale: number): void {
+    const msg: ClientMessage = { t: 'speed', scale };
     this.worker.postMessage(msg);
   }
 }
@@ -68,6 +75,10 @@ export class WebSocketTransport extends BaseTransport {
   sendChat(agentId: number, text: string, isOrder: boolean): void {
     if (!this.ws) return;
     this.ws.send(encodeClientMessage({ t: 'chat', agentId, text, isOrder }));
+  }
+  sendSpeed(scale: number): void {
+    if (!this.ws) return;
+    this.ws.send(encodeClientMessage({ t: 'speed', scale }));
   }
 }
 
