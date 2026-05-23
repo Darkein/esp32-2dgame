@@ -226,6 +226,17 @@ export const APPRENTICE_PROXIMITY_TILES = 3;
 /** Rayon (tuiles) du « souvenir partagé » lors d'une sépulture (mort = mémoire collective). */
 export const FUNERAL_MEMORY_RADIUS = 30;
 
+// --- Relations sociales avancées (Phase 13) --------------------------------
+
+/** Différence d'affinité (rival - partenaire) au-delà de laquelle la jalousie monte. */
+export const JEALOUSY_GAP = 20;
+/** Affinité perdue par seconde de jeu de jalousie active (cumulative côté partenaire). */
+export const JEALOUSY_DECAY_PER_SEC = 0.0002;
+/** Seuil d'affinité (négative) entre conjoints en-deçà duquel le couple se brise. */
+export const BREAKUP_AFFINITY = -10;
+/** Pénalité d'affinité immédiate au moment de la rupture (vers ex et rival). */
+export const BREAKUP_AFFINITY_SHOCK = 40;
+
 // --- Santé & maladies (Phase 10) -------------------------------------------
 
 /** Santé maximale (un agent en parfaite santé). */

@@ -16,12 +16,16 @@ import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
   APPRENTICE_PROXIMITY_TILES,
+  BREAKUP_AFFINITY,
+  BREAKUP_AFFINITY_SHOCK,
   buildingShape,
   BUILD_BY_KIND,
   CONCEPTION_RATE_PER_YEAR,
   CONTAGION_RADIUS,
   CONTAGION_RATE_PER_SEC,
   COUPLE_THRESHOLD,
+  JEALOUSY_DECAY_PER_SEC,
+  JEALOUSY_GAP,
   DECISION_INTERVAL_SECONDS,
   ELDER_ENERGY_CAP,
   FERTILE_MAX,
@@ -340,6 +344,9 @@ export class Simulation {
 
     // Météo : renouvelée à chaque bord de journée (selon la saison courante).
     this.updateWeather();
+
+    // Relations : jalousie, ruptures (lent, une fois par tick réel suffit).
+    this.stepRelations(dtTotal);
 
     // Cycle de la vie : vieillissement, couples, grossesses, naissances, morts.
     this.stepLife(dtTotal);
@@ -677,6 +684,68 @@ export class Simulation {
     other.state.activity = 'talking';
     this.tryFormCouple(agent, other);
     if (this.rng.chance(0.04)) this.orchestrator.converse(agent, other, this.clock);
+  }
+
+  /** Relations sociales avancées (Phase 13).
+   *  - Jalousie : si le/la conjoint(e) a une affinité notablement plus forte avec
+   *    quelqu'un d'autre, l'agent perd de l'affinité envers lui/elle (et gagne de la
+   *    colère via les émotions).
+   *  - Rupture : sous `BREAKUP_AFFINITY`, le couple se brise (souvenir fort + dialogue). */
+  private stepRelations(dt: number): void {
+    if (dt <= 0) return;
+    const now = this.clock.gameTime;
+    for (const a of this.agents) {
+      if (!a.state.partnerId) continue;
+      const partner = this.agents.find((p) => p.state.id === a.state.partnerId);
+      if (!partner) continue;
+      const relToPartner = a.relationships.get(partner.state.id) ?? 0;
+
+      // Cherche le rival potentiel : un autre agent envers qui le partenaire a une
+      // affinité bien supérieure à celle pour `a`.
+      let bestGap = 0;
+      let rival: Agent | null = null;
+      for (const [otherId, rel] of partner.relationships) {
+        if (otherId === a.state.id) continue;
+        const gap = rel - relToPartner;
+        if (gap > bestGap) {
+          bestGap = gap;
+          rival = this.agents.find((x) => x.state.id === otherId) ?? null;
+        }
+      }
+      if (rival && bestGap > JEALOUSY_GAP) {
+        const loss = JEALOUSY_DECAY_PER_SEC * (bestGap - JEALOUSY_GAP) * dt;
+        a.relationships.set(partner.state.id, Math.max(-100, relToPartner - loss));
+        bumpEmotion(a.emotions, a.personality, 'colere', 0.0005 * dt * (bestGap - JEALOUSY_GAP));
+      }
+
+      // Rupture si l'affinité passe sous le seuil.
+      if (relToPartner <= BREAKUP_AFFINITY) {
+        this.breakup(a, partner, now);
+      }
+    }
+  }
+
+  /** Rompt un couple : remet `partnerId` à 0 des deux côtés, choc d'affinité,
+   *  mémoire & dialogue. Marque les deux d'une grosse impulsion de tristesse/colère. */
+  private breakup(a: Agent, b: Agent, now: number): void {
+    a.state.partnerId = 0;
+    b.state.partnerId = 0;
+    const ra = (a.relationships.get(b.state.id) ?? 0) - BREAKUP_AFFINITY_SHOCK;
+    const rb = (b.relationships.get(a.state.id) ?? 0) - BREAKUP_AFFINITY_SHOCK;
+    a.relationships.set(b.state.id, Math.max(-100, ra));
+    b.relationships.set(a.state.id, Math.max(-100, rb));
+    a.memory.add(now, `Je me suis séparé(e) de ${b.state.name}`, 9);
+    b.memory.add(now, `Je me suis séparé(e) de ${a.state.name}`, 9);
+    bumpEmotion(a.emotions, a.personality, 'tristesse', 40);
+    bumpEmotion(b.emotions, b.personality, 'tristesse', 40);
+    bumpEmotion(a.emotions, a.personality, 'colere', 25);
+    bumpEmotion(b.emotions, b.personality, 'colere', 25);
+    this.dialogueQueue.push({
+      speakerId: a.state.id,
+      listenerId: b.state.id,
+      text: `${b.state.name}, c'est fini entre nous.`,
+      voiceProfile: a.state.voiceProfile,
+    });
   }
 
   /** Deux adultes célibataires de sexe opposé, mutuellement attachés, se mettent en couple. */

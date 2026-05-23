@@ -203,15 +203,22 @@ Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dial
   (`stepEmotionsAll`, impulsions sur événements), `sim-core/src/ai/orchestrator.ts`
   (humeur dans le prompt), `protocol/src/types.ts` (`Emotions`)
 
-## ⬜ Phase 13 — Relations sociales avancées *(P1)*
-- [ ] **Cour** : montée d'affinité → invitations, cadeaux, déclarations
-- [ ] **Couple officiel** : statut posé, cohabitation, partage d'inventaire/maison
-- [ ] **Mariage** (cérémonie collective, fête du village)
-- [ ] **Jalousie / rupture / divorce** si affinité d'un partenaire monte avec un tiers
-- [ ] Famille : `parents[]`, `children[]`, `siblings[]` — visibilité dans HUD
-- [ ] **Amitiés / rivalités** : seuils négatifs déclenchent évitement, disputes
-- [ ] **Réputation** : score public agrégé (vu par tout le village)
-- Fichiers : extension `entities.ts`, nouveau `sim-core/src/social.ts`
+## 🟦 Phase 13 — Relations sociales avancées *(P1)*
+- [x] **Cour** émergente : affinité monte naturellement par proximité (existant)
+- [x] **Couple officiel** : `partnerId` posé à `COUPLE_THRESHOLD` (existant)
+- [x] **Jalousie** : si le partenaire a une affinité bien supérieure pour un tiers,
+  l'agent perd de l'affinité envers lui/elle (`JEALOUSY_GAP`, `JEALOUSY_DECAY_PER_SEC`)
+  et accumule colère
+- [x] **Rupture / divorce** : sous `BREAKUP_AFFINITY`, le couple se brise — choc
+  d'affinité (`BREAKUP_AFFINITY_SHOCK`), souvenir 9, dialogue émis, tristesse/colère
+- [x] **Famille** dérivée du champ `parents` : `familyOf(agent)` renvoie parents,
+  enfants, fratrie (`social.ts`)
+- [x] **Réputation publique** : `reputation(agent)` = moyenne des affinités envers lui
+- [ ] **Mariage** (cérémonie collective, fête du village ; couplage Phase 17 culture)
+- [ ] **Amitiés / rivalités** : seuils positifs/négatifs déclenchent évitement, dispute
+- [ ] Visibilité HUD (couplage Phase 21)
+- Fichiers : `sim-core/src/social.ts` (nouveau), `sim-core/src/sim.ts`
+  (`stepRelations`, `breakup`), `sim-core/src/catalog.ts` (constantes Phase 13)
 
 ## ⬜ Phase 14 — Compétences & apprentissage *(P2)*
 - [ ] Tableau de skills par métier (fermier, bûcheron, mineur, artisan, boulanger, soigneur…)
