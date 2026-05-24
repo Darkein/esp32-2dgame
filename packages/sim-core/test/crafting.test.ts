@@ -49,8 +49,9 @@ describe('économie en jeu', () => {
   it('les agents fabriquent des objets et bâtissent avec le temps', () => {
     const sim = new Simulation({ seed: 7, agentCount: 8 });
     const initialBuildings = sim.world.buildings.length;
-    // ~15 jours de jeu : laisse le temps aux agents de contourner les footprints multi-tuiles
-    // et d'accumuler de quoi poser un chantier en plus de leur maison/atelier de départ.
+    // On accélère le temps : la marche est maintenant à vitesse humaine (~1 t/s réelle),
+    // donc les déplacements occupent une part bien plus grande du budget si on reste à 1×.
+    sim.setSpeed(4);
     for (let i = 0; i < 18000; i++) sim.tick();
     const inv = new Map<string, number>();
     for (const a of sim.snapshot().agents)

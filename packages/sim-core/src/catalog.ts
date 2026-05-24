@@ -183,14 +183,10 @@ export const JOBS = Object.keys(JOB_PROFILES) as Job[];
 
 // --- Cadences & déplacement (en temps de jeu) ------------------------------
 
-/** Vitesse de marche, en tuiles par seconde de jeu. À 1× (`BASE_SCALE = 24`),
- *  donne 14.4 tuiles/sec réelles ; la borne visuelle ci-dessous ramène cela à un
- *  rythme lisible à basse vitesse. */
-export const WALK_TILES_PER_GAME_SEC = 0.6;
-/** Cap visuel appliqué uniquement si `speed ≤ 2` : un agent ne dépasse jamais
- *  cette vitesse en tuiles par seconde réelle. À très haute vitesse (3×+) on lève
- *  la borne pour retrouver un vrai accéléré. */
-export const MAX_VISUAL_TILES_PER_REAL_SEC = 4;
+/** Vitesse de marche humaine, en tuiles par seconde *réelle* à `speed = 1`, sur un
+ *  terrain de coût 1 (grass/dirt). À `speed = N`, multipliée par N. Modulée
+ *  ensuite par `TILE_MOVE_COST` (forêt plus lente, chemin foulé plus rapide). */
+export const WALK_TILES_PER_REAL_SEC = 1.0;
 /** Délai de jeu entre deux gestes de récolte/craft/troc d'un agent. */
 export const GATHER_CADENCE_SECONDS = 5 * MIN;
 /** Filet de sécurité : durée maximale d'une décision avant re-évaluation forcée.

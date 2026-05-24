@@ -122,6 +122,9 @@ export interface AgentState {
   /** Étiquette de la phase courante de la tâche (« rentrer dormir », « manger »,
    *  « flâner »…). Optionnelle : utilisée par le HUD/debug client. */
   phase?: string;
+  /** Présent uniquement quand l'agent marche : prochain waypoint et vitesse réelle
+   *  (tuiles/sec). Permet au client d'interpoler le long du chemin A* entre snapshots. */
+  move?: { to: Vec2; speed: number };
 }
 
 export interface ItemState {

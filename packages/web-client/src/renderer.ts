@@ -38,7 +38,12 @@ interface AgentView {
   body: Graphics;
   label: Text;
   bubble: Text;
-  target: Vec2; // position iso cible (interpolation)
+  /** Position rendue, en coordonnées tuiles (interpolation le long du segment). */
+  tilePos: Vec2;
+  /** Prochain waypoint serveur (tuiles) tant que l'agent marche, sinon null. */
+  moveTo: Vec2 | null;
+  /** Vitesse à appliquer pendant cette interpolation, en tuiles/sec réelles. */
+  speedTPS: number;
   state: AgentState;
 }
 
@@ -75,14 +80,9 @@ export class Renderer {
   /** Vues d'arbres indexées par index de tuile. */
   private treeViews = new Map<number, TreeView>();
   private latest: WorldSnapshot | null = null;
-  /** Vitesse de la simulation (1× = base) ; pilote la rapidité d'interpolation visuelle. */
-  private speed = 1;
+  /** Horodatage de la dernière frame pour calculer `dt` réel sur l'interpolation. */
+  private lastFrame = performance.now();
   onSelect: (agent: AgentState) => void = () => {};
-
-  /** Règle la vitesse perçue par le rendu : au-delà de ~5× les agents "snappent" sur leur cible. */
-  setSpeed(scale: number): void {
-    this.speed = Math.max(0, scale);
-  }
 
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({ background: 0x1a1f2b, resizeTo: window, antialias: true });
@@ -240,7 +240,22 @@ export class Renderer {
       let v = this.views.get(a.id);
       if (!v) v = this.createAgentView(a);
       v.state = a;
-      v.target = isoToScreen(a.pos.x, a.pos.y);
+      if (a.move) {
+        v.moveTo = a.move.to;
+        v.speedTPS = a.move.speed;
+        // Si le rendu a beaucoup divergé de la vérité serveur (onglet en
+        // arrière-plan, gros lag), on snap pour rattraper proprement.
+        const dx = a.pos.x - v.tilePos.x;
+        const dy = a.pos.y - v.tilePos.y;
+        if (Math.hypot(dx, dy) > 1.5) {
+          v.tilePos.x = a.pos.x;
+          v.tilePos.y = a.pos.y;
+        }
+      } else {
+        v.moveTo = null;
+        v.tilePos.x = a.pos.x;
+        v.tilePos.y = a.pos.y;
+      }
       v.label.text = a.name;
       v.bubble.text = a.saying;
       v.bubble.visible = a.saying.length > 0;
@@ -268,7 +283,16 @@ export class Renderer {
     container.x = s.x;
     container.y = s.y;
     this.agentLayer.addChild(container);
-    const v: AgentView = { container, body, label, bubble, target: s, state: a };
+    const v: AgentView = {
+      container,
+      body,
+      label,
+      bubble,
+      tilePos: { x: a.pos.x, y: a.pos.y },
+      moveTo: a.move ? a.move.to : null,
+      speedTPS: a.move ? a.move.speed : 0,
+      state: a,
+    };
     this.views.set(a.id, v);
     return v;
   }
@@ -284,13 +308,24 @@ export class Renderer {
   }
 
   private frame(): void {
-    // Plus la vitesse de simulation est élevée, plus on rattrape vite la cible
-    // (au-delà de ~5× les agents « snappent » sur leur position).
-    const k = Math.min(1, 0.2 * Math.max(1, this.speed));
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
     for (const v of this.views.values()) {
-      v.container.x += (v.target.x - v.container.x) * k;
-      v.container.y += (v.target.y - v.container.y) * k;
-      v.container.zIndex = v.container.y;
+      if (v.moveTo && v.speedTPS > 0) {
+        const dx = v.moveTo.x - v.tilePos.x;
+        const dy = v.moveTo.y - v.tilePos.y;
+        const d = Math.hypot(dx, dy);
+        if (d > 1e-4) {
+          const step = Math.min(v.speedTPS * dt, d);
+          v.tilePos.x += (dx / d) * step;
+          v.tilePos.y += (dy / d) * step;
+        }
+      }
+      const s = isoToScreen(v.tilePos.x, v.tilePos.y);
+      v.container.x = s.x;
+      v.container.y = s.y;
+      v.container.zIndex = s.y;
     }
   }
 

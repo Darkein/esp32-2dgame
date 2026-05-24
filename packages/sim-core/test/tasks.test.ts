@@ -3,7 +3,7 @@ import { Simulation } from '../src/sim';
 import { Rng } from '../src/rng';
 import { SimClock, BASE_SCALE } from '../src/clock';
 import { buildTask, type TaskContext } from '../src/ai/tasks';
-import { DECISION_INTERVAL_SECONDS, MAX_VISUAL_TILES_PER_REAL_SEC } from '../src/catalog';
+import { DECISION_INTERVAL_SECONDS, WALK_TILES_PER_REAL_SEC } from '../src/catalog';
 
 describe('Task (phases multi-étapes)', () => {
   it('manger : décompose en travel → préparer → manger', () => {
@@ -81,7 +81,7 @@ describe('Simulation — tâches & désynchronisation', () => {
     expect(stdev).toBeGreaterThan(0.2 * DECISION_INTERVAL_SECONDS);
   });
 
-  it('borne visuelle : à 1×, un agent ne dépasse pas ~4 tuiles parcourues en 1 s réelle', () => {
+  it("vitesse humaine : à 1×, un agent parcourt ~1 tuile par seconde réelle", () => {
     const sim = new Simulation({ seed: 5, agentCount: 1 });
     const a = sim.agents[0]!;
     // Force une cible lointaine pour saturer le déplacement.
@@ -100,8 +100,10 @@ describe('Simulation — tâches & désynchronisation', () => {
     // 15 ticks = 1 seconde réelle à ticksPerSecond=15.
     for (let i = 0; i < 15; i++) sim.tick();
     const dist = Math.hypot(a.state.pos.x - start.x, a.state.pos.y - start.y);
-    // Tolérance : la borne est de 4 t/s réelles ; ~5 = marge pour le sous-pas final.
-    expect(dist).toBeLessThanOrEqual(MAX_VISUAL_TILES_PER_REAL_SEC + 1.5);
+    // Cible : ~1 tuile/sec à 1× sur terrain neutre. Bornes larges pour absorber
+    // météo et coût terrain (forêt ralentit, chemin foulé accélère).
+    expect(dist).toBeGreaterThan(WALK_TILES_PER_REAL_SEC * 0.3);
+    expect(dist).toBeLessThanOrEqual(WALK_TILES_PER_REAL_SEC * 2.5);
   });
 
   it("un besoin critique interrompt une activité non-essentielle", () => {
