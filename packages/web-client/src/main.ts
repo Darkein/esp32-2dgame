@@ -152,7 +152,7 @@ async function main() {
     btn.addEventListener('click', () => {
       const scale = Number(btn.dataset.speed);
       transport.sendSpeed(scale);
-      renderer.setSpeed(scale); // l'interpolation visuelle suit la vitesse
+      // L'interpolation visuelle suit la vitesse via `state.move.speed` (réelle).
       for (const b of speedBtns) b.classList.toggle('active', b === btn);
     });
   }

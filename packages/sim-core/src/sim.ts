@@ -56,12 +56,12 @@ import {
   MAX_FARMS_PER_AGENT,
   MAX_POP,
   MAX_SUBSTEPS_PER_TICK,
-  MAX_VISUAL_TILES_PER_REAL_SEC,
   RECIPE_BY_ID,
   RELATIONSHIP_GAIN_PER_GAME_SEC,
   STARTING_COINS,
   STARTING_INVENTORY,
-  WALK_TILES_PER_GAME_SEC,
+  TILE_MOVE_COST,
+  WALK_TILES_PER_REAL_SEC,
   YEAR_SECONDS,
   type Job,
 } from './catalog';
@@ -396,6 +396,9 @@ export class Simulation {
   /** Initialise la phase courante : pose la cible, calcule un chemin A* (travel/
    *  wander), et synchronise `state.activity`. Saute la phase si déjà sur place. */
   private enterPhase(agent: Agent, now: number): void {
+    // À chaque transition de phase on remet le segment de marche à zéro ; il sera
+    // re-posé par `stepMovementPhase` si la phase entrante est un déplacement.
+    agent.state.move = undefined;
     const task = agent.currentTask;
     if (!task || task.idx >= task.phases.length) {
       agent.target = null;
@@ -414,7 +417,18 @@ export class Simulation {
         this.advancePhase(agent, now);
         return;
       }
-      agent.path = findPath(this.world, agent.state.pos, t);
+      const path = findPath(this.world, agent.state.pos, t);
+      if (!path) {
+        // Cible inatteignable (entourée d'eau / bloquée) : on renonce proprement
+        // plutôt que de laisser un agent figé avec `target` actif et `path=null`.
+        agent.target = null;
+        agent.path = null;
+        agent.pathIdx = 0;
+        agent.state.activity = 'idle';
+        this.advancePhase(agent, now);
+        return;
+      }
+      agent.path = path;
       agent.pathIdx = 0;
       agent.state.activity = 'walking';
     } else {
@@ -472,53 +486,81 @@ export class Simulation {
   }
 
   /** Marche vers `agent.target` pour la phase courante. Sur arrivée → phase suivante.
-   *  Une borne visuelle (en tuiles/sec réelles) ne s'applique qu'à `speed ≤ 2` :
-   *  elle rend le déplacement lisible à basse vitesse sans gêner l'accéléré. */
+   *  La vitesse réelle (tuiles/sec) est `WALK_TILES_PER_REAL_SEC * speed * météo /
+   *  coût_terrain` ; elle est publiée dans `state.move` pour que le client interpole
+   *  exactement le même segment, supprimant l'effet « diagonale au-dessus de l'eau ». */
   private stepMovementPhase(agent: Agent, dt: number, now: number): void {
     const pos = agent.state.pos;
     const target = agent.target;
     if (!target || distance(pos, target) <= 0.4) {
+      agent.state.move = undefined;
       this.advancePhase(agent, now);
       return;
     }
-    let wp: Vec2 = target;
+    let wp: Vec2 | null = null;
     if (agent.path && agent.path.length > 0) {
       while (agent.pathIdx < agent.path.length && distance(pos, agent.path[agent.pathIdx]!) < 0.4) {
         agent.pathIdx++;
       }
-      if (agent.pathIdx >= agent.path.length) {
-        wp = target;
-      } else {
+      if (agent.pathIdx < agent.path.length) {
         const next = agent.path[agent.pathIdx]!;
-        if (!this.world.walkable(Math.round(next.x), Math.round(next.y))) {
-          agent.path = findPath(this.world, pos, target);
-          agent.pathIdx = 0;
-          wp = agent.path && agent.path.length > 0 ? agent.path[0]! : target;
-        } else {
+        if (this.world.walkable(Math.round(next.x), Math.round(next.y))) {
           wp = next;
         }
       }
+    }
+    // Chemin épuisé ou bloqué : replanifier. Pas de fallback « ligne droite vers
+    // target » — c'est ce qui faisait couper par-dessus l'eau quand le chemin A*
+    // contournait un plan d'eau.
+    if (!wp) {
+      const fresh = findPath(this.world, pos, target);
+      if (!fresh || fresh.length === 0) {
+        agent.state.move = undefined;
+        this.advancePhase(agent, now);
+        return;
+      }
+      agent.path = fresh;
+      agent.pathIdx = 0;
+      wp = fresh[0]!;
     }
     const dx = wp.x - pos.x;
     const dy = wp.y - pos.y;
     const d = Math.hypot(dx, dy) || 1;
     const weatherSpeed = WEATHER_EFFECTS[this.weather.kind].walkSpeed;
-    const gameStep = WALK_TILES_PER_GAME_SEC * weatherSpeed * dt;
-    // Borne visuelle : convertit dt (jeu) en dt (réel) pour plafonner tiles/sec réels.
+    const tileHere = this.world.tileAt(Math.round(pos.x), Math.round(pos.y));
+    const tileCost = TILE_MOVE_COST[tileHere];
+    const terrainFactor = isFinite(tileCost) && tileCost > 0 ? 1 / tileCost : 0;
+    // Vitesse réelle (tuiles par seconde réelle, hors accéléré).
+    const realTPS = WALK_TILES_PER_REAL_SEC * weatherSpeed * terrainFactor;
+    // `dt` est en secondes de jeu ; conversion en secondes réelles.
     const dtReal = this.speed > 0 ? dt / (this.speed * BASE_SCALE) : 0;
-    const visualCap =
-      this.speed > 0 && this.speed <= 2 ? MAX_VISUAL_TILES_PER_REAL_SEC * dtReal : Infinity;
-    const step = Math.min(gameStep, visualCap, d);
+    // Pas appliqué dans le monde : on multiplie par `speed` pour conserver l'accéléré.
+    const step = Math.min(realTPS * this.speed * dtReal, d);
     const prevTx = Math.round(pos.x);
     const prevTy = Math.round(pos.y);
     pos.x += (dx / d) * step;
     pos.y += (dy / d) * step;
     const nowTx = Math.round(pos.x);
     const nowTy = Math.round(pos.y);
+    // Garde-fou : si la tuile atteinte est non walkable (mutation imprévue),
+    // on recule sur la dernière tuile valide et on replanifie.
+    if (!this.world.walkable(nowTx, nowTy)) {
+      pos.x = prevTx;
+      pos.y = prevTy;
+      agent.path = findPath(this.world, pos, target);
+      agent.pathIdx = 0;
+      agent.state.move = undefined;
+      return;
+    }
     // Usure : un passage marqué à chaque changement de tuile entière (chemin émergent).
     if (nowTx !== prevTx || nowTy !== prevTy) this.world.stampWear(nowTx, nowTy, 1);
     agent.state.activity = 'walking';
-    if (distance(pos, target) <= 0.4) this.advancePhase(agent, now);
+    // Publie le segment courant pour l'interpolation visuelle côté client.
+    agent.state.move = { to: { x: wp.x, y: wp.y }, speed: realTPS * this.speed };
+    if (distance(pos, target) <= 0.4) {
+      agent.state.move = undefined;
+      this.advancePhase(agent, now);
+    }
   }
 
   /** Se laver : pas d'action discrète, le gain d'hygiène est appliqué par `stepNeeds`
