@@ -119,6 +119,9 @@ export interface AgentState {
   lifeStage: LifeStage;
   /** Id du/de la conjoint(e), 0 si célibataire. */
   partnerId: number;
+  /** Étiquette de la phase courante de la tâche (« rentrer dormir », « manger »,
+   *  « flâner »…). Optionnelle : utilisée par le HUD/debug client. */
+  phase?: string;
 }
 
 export interface ItemState {
