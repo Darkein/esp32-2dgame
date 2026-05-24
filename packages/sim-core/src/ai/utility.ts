@@ -32,6 +32,13 @@ function nearestAgent(self: Agent, agents: Agent[]): Agent | null {
 
 const norm = (need: number) => 1 - need / 100; // 0 (rassasié) .. 1 (urgent)
 
+/** Vrai si un besoin urgent doit pouvoir interrompre une tâche non-essentielle.
+ *  Seuils délibérément bas pour ne pas faire osciller les agents. */
+export function needsCritical(a: Agent): boolean {
+  const n = a.state.needs;
+  return n.hunger < 15 || n.energy < 8;
+}
+
 /**
  * Couche rapide : choisit l'action de plus forte utilité. Purement déterministe,
  * sub-milliseconde — c'est elle qui garantit le « < 0,5 s par décision ».

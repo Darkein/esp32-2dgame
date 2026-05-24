@@ -1,16 +1,17 @@
 import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender, WeatherState } from '@game/protocol';
 import type { LLMProvider } from '@game/llm';
 import { World } from './world';
-import { SimClock, GAME_SECONDS_PER_DAY } from './clock';
+import { SimClock, GAME_SECONDS_PER_DAY, BASE_SCALE } from './clock';
 import { Rng } from './rng';
 import { makeWeather, rollWeather, WEATHER_EFFECTS } from './weather';
 import { type Agent, type ActivePlan, type Personality, assignJob, makeNeeds, distance, lifeStageFor, isTeen } from './entities';
 import { MemoryStream } from './ai/memory';
 import { stepNeeds } from './ai/needs';
-import { decideAction } from './ai/utility';
+import { decideAction, needsCritical } from './ai/utility';
 import { choosePlan } from './ai/planner';
 import { Orchestrator } from './ai/orchestrator';
 import { findPath } from './ai/pathfind';
+import { buildTask, currentPhaseLabel, type TaskContext } from './ai/tasks';
 import { bumpEmotion, decayEmotions, makeEmotions } from './ai/emotion';
 import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
@@ -55,6 +56,7 @@ import {
   MAX_FARMS_PER_AGENT,
   MAX_POP,
   MAX_SUBSTEPS_PER_TICK,
+  MAX_VISUAL_TILES_PER_REAL_SEC,
   RECIPE_BY_ID,
   RELATIONSHIP_GAIN_PER_GAME_SEC,
   STARTING_COINS,
@@ -63,6 +65,14 @@ import {
   YEAR_SECONDS,
   type Job,
 } from './catalog';
+
+/** Décalage initial désynchronisé (en secondes de jeu) pour la première décision
+ *  d'un agent. Distribution low-discrepancy basée sur le nombre d'or → spread
+ *  régulier sans burn du RNG partagé (la composition des villages reste stable). */
+const PHI_INV = 0.6180339887498949;
+function staggerOffset(id: number): number {
+  return ((id * PHI_INV) - Math.floor(id * PHI_INV)) * DECISION_INTERVAL_SECONDS;
+}
 
 // Prénoms par sexe (Camille → fille, Sacha → garçon par convention de ce village).
 const NAMES_M = ['Hugo', 'Noé', 'Lucas', 'Théo', 'Gabriel', 'Raphaël', 'Sacha', 'Eliott'];
@@ -255,8 +265,11 @@ export class Simulation {
         target: null,
         path: null,
         pathIdx: 0,
-        intent: 'idle',
-        actionUntilGameTime: 0,
+        currentTask: null,
+        // Décalage initial bien réparti sur [0, DECISION_INTERVAL_SECONDS] via le nombre
+        // d'or — évite la vague synchronisée du tout premier choix sans toucher au RNG
+        // partagé (la composition des villages reste reproductible).
+        firstDecisionAt: this.clock.gameTime + staggerOffset(id),
         relationships: new Map(),
         memory: new MemoryStream(),
         nextThinkTick: this.rng.int(300),
@@ -318,26 +331,20 @@ export class Simulation {
       for (const agent of this.agents) {
         stepNeeds(agent.state.needs, agent.state.activity, subDt);
 
-        // Re-décision cadencée en temps de jeu (≈ toutes les 15 min de jeu) : permet à
-        // un agent de changer d'activité plusieurs fois quand un tick couvre des heures.
-        if (subEnd >= agent.actionUntilGameTime) {
-          const decision = decideAction(
-            agent,
-            this.world,
-            this.clock,
-            this.agents,
-            this.orchestrator.bias.get(agent.state.id) ?? null,
-          );
-          agent.intent = decision.activity;
-          const target = this.resolveTarget(agent, decision.activity, decision.target);
-          agent.target = this.world.nearestWalkable(Math.round(target.x), Math.round(target.y));
-          // Recalcule un chemin tuile-à-tuile ; le mouvement suivra les waypoints.
-          agent.path = findPath(this.world, agent.state.pos, agent.target);
-          agent.pathIdx = 0;
-          agent.actionUntilGameTime = subEnd + DECISION_INTERVAL_SECONDS;
+        // Re-décision événementielle : tâche finie, filet temps de jeu dépassé,
+        // ou besoin critique qui doit prendre la main sur une activité non vitale.
+        if (subEnd >= agent.firstDecisionAt) {
+          const t = agent.currentTask;
+          const taskDone = !t || t.idx >= t.phases.length;
+          const taskExpired = !!t && subEnd >= t.hardDeadlineAt;
+          const criticalSwitch =
+            !!t && needsCritical(agent) && t.goal !== 'eating' && t.goal !== 'sleeping';
+          if (taskDone || taskExpired || criticalSwitch) {
+            this.chooseAndStartTask(agent, subEnd);
+          }
         }
 
-        this.stepMovement(agent, subDt, subEnd);
+        this.stepTask(agent, subDt, subEnd);
       }
     }
 
@@ -366,57 +373,152 @@ export class Simulation {
     this.weather = makeWeather(kind, this.clock.gameTime, GAME_SECONDS_PER_DAY);
   }
 
-  private stepMovement(agent: Agent, dt: number, now: number): void {
-    const pos = agent.state.pos;
-    const target = agent.target;
-    if (target && distance(pos, target) > 0.4) {
-      // Choisit le waypoint courant (chemin A* si dispo, sinon cap direct sur target).
-      let wp: Vec2 = target;
-      if (agent.path && agent.path.length > 0) {
-        // Avance à travers les waypoints atteints ; relance A* si le chemin est obsolète.
-        while (agent.pathIdx < agent.path.length && distance(pos, agent.path[agent.pathIdx]!) < 0.4) {
-          agent.pathIdx++;
-        }
-        if (agent.pathIdx >= agent.path.length) {
-          // Chemin terminé mais target pas atteint : tente un dernier cap direct (≤ 1 tuile).
-          wp = target;
-        } else {
-          const next = agent.path[agent.pathIdx]!;
-          if (!this.world.walkable(Math.round(next.x), Math.round(next.y))) {
-            agent.path = findPath(this.world, pos, target);
-            agent.pathIdx = 0;
-            wp = agent.path && agent.path.length > 0 ? agent.path[0]! : target;
-          } else {
-            wp = next;
-          }
-        }
-      }
-      const dx = wp.x - pos.x;
-      const dy = wp.y - pos.y;
-      const d = Math.hypot(dx, dy) || 1;
-      // Pas borné à la distance restante (évite le dépassement en avance rapide).
-      // Météo : pluie/neige/etc. ralentissent la marche (cf. `WEATHER_EFFECTS`).
-      const weatherSpeed = WEATHER_EFFECTS[this.weather.kind].walkSpeed;
-      const step = Math.min(WALK_TILES_PER_GAME_SEC * weatherSpeed * dt, d);
-      const prevTx = Math.round(pos.x);
-      const prevTy = Math.round(pos.y);
-      pos.x += (dx / d) * step;
-      pos.y += (dy / d) * step;
-      const nowTx = Math.round(pos.x);
-      const nowTy = Math.round(pos.y);
-      // Usure : un passage marqué à chaque changement de tuile entière (chemin émergent).
-      if (nowTx !== prevTx || nowTy !== prevTy) this.world.stampWear(nowTx, nowTy, 1);
-      agent.state.activity = 'walking';
+  /** Construit une nouvelle tâche pour l'agent à partir de `decideAction` puis
+   *  configure la première phase (cible, A*, activity). */
+  private chooseAndStartTask(agent: Agent, now: number): void {
+    const decision = decideAction(
+      agent,
+      this.world,
+      this.clock,
+      this.agents,
+      this.orchestrator.bias.get(agent.state.id) ?? null,
+    );
+    const ctx: TaskContext = {
+      agent,
+      rng: this.rng,
+      clock: this.clock,
+      resolveTarget: (act, fb) => this.resolveTarget(agent, act, fb),
+    };
+    agent.currentTask = buildTask(decision.activity, decision.target, ctx);
+    this.enterPhase(agent, now);
+  }
+
+  /** Initialise la phase courante : pose la cible, calcule un chemin A* (travel/
+   *  wander), et synchronise `state.activity`. Saute la phase si déjà sur place. */
+  private enterPhase(agent: Agent, now: number): void {
+    const task = agent.currentTask;
+    if (!task || task.idx >= task.phases.length) {
+      agent.target = null;
+      agent.path = null;
+      agent.pathIdx = 0;
+      agent.state.activity = 'idle';
       return;
     }
-    // Arrivé : exécuter l'intention.
-    agent.state.activity = agent.intent;
-    if (agent.intent === 'socializing') this.trySocialize(agent, dt);
-    else if (agent.intent === 'working') this.advanceWork(agent, now);
-    else if (agent.intent === 'crafting') this.advancePlan(agent, dt);
-    else if (agent.intent === 'eating') this.tryEat(agent, now);
-    else if (agent.intent === 'trading') this.tryTrade(agent, now);
-    else if (agent.intent === 'washing') this.tryWash(agent, now);
+    const ph = task.phases[task.idx]!;
+    ph.startedAt = now;
+    if ((ph.kind === 'travel' || ph.kind === 'wander') && ph.target) {
+      const t = this.world.nearestWalkable(Math.round(ph.target.x), Math.round(ph.target.y));
+      agent.target = t;
+      if (distance(agent.state.pos, t) <= 0.4) {
+        // Déjà sur place : passe directement à la phase suivante.
+        this.advancePhase(agent, now);
+        return;
+      }
+      agent.path = findPath(this.world, agent.state.pos, t);
+      agent.pathIdx = 0;
+      agent.state.activity = 'walking';
+    } else {
+      agent.target = null;
+      agent.path = null;
+      agent.pathIdx = 0;
+      agent.state.activity = ph.activity;
+    }
+  }
+
+  /** Passe à la phase suivante (ou termine la tâche si plus rien). */
+  private advancePhase(agent: Agent, now: number): void {
+    if (!agent.currentTask) return;
+    agent.currentTask.idx++;
+    this.enterPhase(agent, now);
+  }
+
+  /** Joue un pas de la phase courante : déplacement, exécution ou attente. */
+  private stepTask(agent: Agent, dt: number, now: number): void {
+    const task = agent.currentTask;
+    if (!task || task.idx >= task.phases.length) {
+      agent.state.activity = 'idle';
+      return;
+    }
+    const ph = task.phases[task.idx]!;
+    if (ph.kind === 'travel' || ph.kind === 'wander') {
+      this.stepMovementPhase(agent, dt, now);
+      return;
+    }
+    if (ph.kind === 'execute') {
+      agent.state.activity = ph.activity;
+      if (ph.activity === 'socializing') this.trySocialize(agent, dt);
+      else if (ph.activity === 'working') this.advanceWork(agent, now);
+      else if (ph.activity === 'crafting') this.advancePlan(agent, dt);
+      else if (ph.activity === 'eating') this.tryEat(agent, now);
+      else if (ph.activity === 'trading') this.tryTrade(agent, now);
+      else if (ph.activity === 'washing') this.tryWash(agent, now);
+      const elapsed = now - (ph.startedAt ?? now);
+      const duration = ph.durationSeconds ?? 0;
+      // Fin anticipée : un craft achevé libère la phase sans attendre le timer.
+      const planDone = ph.activity === 'crafting' && agent.plan == null && elapsed > 1;
+      if (elapsed >= duration || planDone) this.advancePhase(agent, now);
+      return;
+    }
+    // wait : laisse passer le temps. `stepNeeds` profite déjà de `state.activity`.
+    agent.state.activity = ph.activity;
+    const elapsed = now - (ph.startedAt ?? now);
+    const duration = ph.durationSeconds ?? 0;
+    // Sommeil : se réveille tôt si l'énergie est pleine ou si le jour s'est levé.
+    const sleepDone =
+      ph.activity === 'sleeping' &&
+      (agent.state.needs.energy >= 95 ||
+        (this.clock.timeOfDay >= 7 && this.clock.timeOfDay < 21));
+    if (elapsed >= duration || sleepDone) this.advancePhase(agent, now);
+  }
+
+  /** Marche vers `agent.target` pour la phase courante. Sur arrivée → phase suivante.
+   *  Une borne visuelle (en tuiles/sec réelles) ne s'applique qu'à `speed ≤ 2` :
+   *  elle rend le déplacement lisible à basse vitesse sans gêner l'accéléré. */
+  private stepMovementPhase(agent: Agent, dt: number, now: number): void {
+    const pos = agent.state.pos;
+    const target = agent.target;
+    if (!target || distance(pos, target) <= 0.4) {
+      this.advancePhase(agent, now);
+      return;
+    }
+    let wp: Vec2 = target;
+    if (agent.path && agent.path.length > 0) {
+      while (agent.pathIdx < agent.path.length && distance(pos, agent.path[agent.pathIdx]!) < 0.4) {
+        agent.pathIdx++;
+      }
+      if (agent.pathIdx >= agent.path.length) {
+        wp = target;
+      } else {
+        const next = agent.path[agent.pathIdx]!;
+        if (!this.world.walkable(Math.round(next.x), Math.round(next.y))) {
+          agent.path = findPath(this.world, pos, target);
+          agent.pathIdx = 0;
+          wp = agent.path && agent.path.length > 0 ? agent.path[0]! : target;
+        } else {
+          wp = next;
+        }
+      }
+    }
+    const dx = wp.x - pos.x;
+    const dy = wp.y - pos.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const weatherSpeed = WEATHER_EFFECTS[this.weather.kind].walkSpeed;
+    const gameStep = WALK_TILES_PER_GAME_SEC * weatherSpeed * dt;
+    // Borne visuelle : convertit dt (jeu) en dt (réel) pour plafonner tiles/sec réels.
+    const dtReal = this.speed > 0 ? dt / (this.speed * BASE_SCALE) : 0;
+    const visualCap =
+      this.speed > 0 && this.speed <= 2 ? MAX_VISUAL_TILES_PER_REAL_SEC * dtReal : Infinity;
+    const step = Math.min(gameStep, visualCap, d);
+    const prevTx = Math.round(pos.x);
+    const prevTy = Math.round(pos.y);
+    pos.x += (dx / d) * step;
+    pos.y += (dy / d) * step;
+    const nowTx = Math.round(pos.x);
+    const nowTy = Math.round(pos.y);
+    // Usure : un passage marqué à chaque changement de tuile entière (chemin émergent).
+    if (nowTx !== prevTx || nowTy !== prevTy) this.world.stampWear(nowTx, nowTy, 1);
+    agent.state.activity = 'walking';
+    if (distance(pos, target) <= 0.4) this.advancePhase(agent, now);
   }
 
   /** Se laver : pas d'action discrète, le gain d'hygiène est appliqué par `stepNeeds`
@@ -911,8 +1013,9 @@ export class Simulation {
       target: null,
       path: null,
       pathIdx: 0,
-      intent: 'idle',
-      actionUntilGameTime: 0,
+      currentTask: null,
+      // Nouveau-né : pas de stagger, il pourra agir dès le prochain tick.
+      firstDecisionAt: now,
       relationships: new Map(),
       memory: new MemoryStream(),
       nextThinkTick: this.rng.int(300),
@@ -1173,6 +1276,7 @@ export class Simulation {
         needs: { ...a.state.needs },
         inventory: inventoryToStacks(a.inventory),
         houses: a.houses,
+        phase: currentPhaseLabel(a.currentTask),
       })),
       items: this.world.items.map((i) => ({ ...i })),
       buildings: this.world.buildings.map((b) => ({ ...b })),

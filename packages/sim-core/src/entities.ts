@@ -2,6 +2,7 @@ import type { ActivityKind, AgentState, Emotions, LifeStage, Needs, Vec2 } from 
 import type { Job } from './catalog';
 import { ADULT_AGE, ELDER_AGE, TEEN_AGE } from './catalog';
 import type { MemoryStream } from './ai/memory';
+import type { Task } from './ai/tasks';
 
 /** Projet en cours d'un agent (fabrication ou construction). Le travail agricole
  *  (semer/récolter) et la récolte des gisements sont gérés dans l'activité `working`. */
@@ -54,10 +55,13 @@ export interface Agent {
   pathIdx: number;
   /** Centre du village d'appartenance (spawn + ancrage des constructions). */
   village: Vec2;
-  /** Activité à exécuter une fois la cible atteinte. */
-  intent: ActivityKind;
-  /** Temps de jeu (s) jusqu'auquel la décision courante tient (re-décision ensuite). */
-  actionUntilGameTime: number;
+  /** Tâche multi-phases courante (voyage → exécution → pause → re-décision).
+   *  `null` = en attente d'une (re-)décision au prochain tick. */
+  currentTask: Task | null;
+  /** Temps de jeu (s) avant la toute première décision de cet agent. Permet de
+   *  désynchroniser la vague initiale (au-delà, la dérive est portée par la
+   *  durée variable des phases). */
+  firstDecisionAt: number;
   /** Relations : id d'agent -> affinité (-100..100). */
   relationships: Map<number, number>;
   memory: MemoryStream;

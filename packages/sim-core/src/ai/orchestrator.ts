@@ -212,8 +212,10 @@ export class Orchestrator {
     agent.memory.add(clock.tick, `J'ai répondu au joueur: ${text}`, 5);
     if (isOrder && accepted && activity) {
       this.bias.set(agent.state.id, activity);
-      agent.intent = activity;
-      agent.actionUntilGameTime = clock.gameTime; // agit immédiatement
+      // Invalide la tâche courante : la prochaine sous-étape rappelera `decideAction`
+      // avec le biais et construira une nouvelle séquence de phases adaptée.
+      agent.currentTask = null;
+      agent.firstDecisionAt = clock.gameTime;
       agent.state.goal = `obéir au joueur (${activity})`;
     }
     this.onDialogue({ speakerId: agent.state.id, listenerId: 0, text, voiceProfile: agent.state.voiceProfile });
