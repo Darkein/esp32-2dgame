@@ -27,12 +27,14 @@ const CERF_PALETTE = [
 
 const CERF: CharacterSpriteDef = {
   palette: CERF_PALETTE,
-  fps: 6,
+  fps: { walk: 6 },
   anchorY: 0.95,
   width: 14,
   height: 12,
   mirrorLeftRight: true,
-  frames: {
+  defaultAnimation: 'walk',
+  animations: {
+    walk: {
     right: [
       [
         '            33',
@@ -208,6 +210,7 @@ const CERF: CharacterSpriteDef = {
         '             ',
       ],
     ],
+    },
   },
 };
 
@@ -224,12 +227,14 @@ const LAPIN_PALETTE = [
 
 const LAPIN: CharacterSpriteDef = {
   palette: LAPIN_PALETTE,
-  fps: 6,
+  fps: { walk: 6 },
   anchorY: 0.95,
   width: 10,
   height: 10,
   mirrorLeftRight: true,
-  frames: {
+  defaultAnimation: 'walk',
+  animations: {
+    walk: {
     right: [
       [ // au sol
         '          ',
@@ -381,6 +386,7 @@ const LAPIN: CharacterSpriteDef = {
         '          ',
       ],
     ],
+    },
   },
 };
 
@@ -398,12 +404,14 @@ const SANGLIER_PALETTE = [
 
 const SANGLIER: CharacterSpriteDef = {
   palette: SANGLIER_PALETTE,
-  fps: 5,
+  fps: { walk: 5 },
   anchorY: 0.95,
   width: 14,
   height: 10,
   mirrorLeftRight: true,
-  frames: {
+  defaultAnimation: 'walk',
+  animations: {
+    walk: {
     right: [
       [
         '              ',
@@ -555,6 +563,7 @@ const SANGLIER: CharacterSpriteDef = {
         '              ',
       ],
     ],
+    },
   },
 };
 
@@ -572,12 +581,14 @@ const LOUP_PALETTE = [
 
 const LOUP: CharacterSpriteDef = {
   palette: LOUP_PALETTE,
-  fps: 6,
+  fps: { walk: 6 },
   anchorY: 0.95,
   width: 14,
   height: 10,
   mirrorLeftRight: true,
-  frames: {
+  defaultAnimation: 'walk',
+  animations: {
+    walk: {
     right: [
       [
         '              ',
@@ -729,6 +740,7 @@ const LOUP: CharacterSpriteDef = {
         '              ',
       ],
     ],
+    },
   },
 };
 
@@ -770,16 +782,19 @@ const POISSON_UP = [
 
 const POISSON: CharacterSpriteDef = {
   palette: POISSON_PALETTE,
-  fps: 4,
+  fps: { walk: 4 },
   anchorY: 0.7,
   width: 12,
   height: 6,
   mirrorLeftRight: true,
-  frames: {
-    right: [POISSON_RIGHT_0, POISSON_RIGHT_1],
-    left: [],
-    up: [POISSON_UP, POISSON_UP],
-    down: [POISSON_UP, POISSON_UP],
+  defaultAnimation: 'walk',
+  animations: {
+    walk: {
+      right: [POISSON_RIGHT_0, POISSON_RIGHT_1],
+      left: [],
+      up: [POISSON_UP, POISSON_UP],
+      down: [POISSON_UP, POISSON_UP],
+    },
   },
 };
 

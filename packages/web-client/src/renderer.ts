@@ -1,6 +1,7 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { TileType, WorldSnapshot, AgentState, BuildingState, Vec2, AnimalSnapshot } from '@game/protocol';
 import { animalSprites, initAnimalSprites } from './sprites/animals';
+import { agentSprite, agentTint, animationForActivity, initAgentSprites } from './sprites/agents';
 import { CharacterView } from './sprites/character-view';
 
 const TILE_W = 64;
@@ -37,7 +38,7 @@ function isoToScreen(x: number, y: number): Vec2 {
 
 interface AgentView {
   container: Container;
-  body: Graphics;
+  character: CharacterView;
   label: Text;
   bubble: Text;
   /** Position rendue, en coordonnées tuiles (interpolation le long du segment). */
@@ -91,8 +92,9 @@ export class Renderer {
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({ background: 0x1a1f2b, resizeTo: window, antialias: true });
     host.appendChild(this.app.canvas);
-    // Compile les textures des sprites animaux (canvas/DOM nécessaire — d'où l'appel après init).
+    // Compile les textures des sprites animaux + villageois (DOM/canvas requis).
     initAnimalSprites();
+    initAgentSprites();
     // Ordre fond → surface : sol, parties basses (Y), agents (Y), parties hautes (par-dessus).
     this.propLayer.sortableChildren = true;
     this.agentLayer.sortableChildren = true;
@@ -144,7 +146,7 @@ export class Renderer {
       const dx = a.pos.x - v.lastWorldPos.x;
       const dy = a.pos.y - v.lastWorldPos.y;
       v.faceFromMovement(dx, dy);
-      v.setIdle(Math.abs(dx) + Math.abs(dy) < 0.02);
+      v.setIdleFrozen(Math.abs(dx) + Math.abs(dy) < 0.02);
       v.setWorld(a.pos.x, a.pos.y);
       const s = isoToScreen(a.pos.x, a.pos.y);
       v.setScreen(s.x, s.y);
@@ -305,8 +307,14 @@ export class Renderer {
 
   private createAgentView(a: AgentState): AgentView {
     const container = new Container();
-    const body = new Graphics().circle(0, 0, 8).fill({ color: agentColor(a.id) }).stroke({ color: 0x000000, width: 1.5 });
-    body.y = -8;
+    // Sprite villageois 4-directionnel : remplace l'ancienne pastille circulaire.
+    // `tint` sur le sprite entier donne à chacun sa nuance de tunique.
+    const character = new CharacterView(agentSprite());
+    character.setTint(agentTint(a.id));
+    character.setWorld(a.pos.x, a.pos.y);
+    // L'aîné / l'enfant sont légèrement scalés (variété visible sans dupliquer l'art).
+    const scale = a.lifeStage === 'enfant' ? 0.72 : a.lifeStage === 'aine' ? 0.95 : 1;
+    character.container.scale.set(scale);
     const label = new Text({ text: a.name, style: nameStyle });
     label.anchor.set(0.5, 1);
     label.y = -20;
@@ -314,14 +322,14 @@ export class Renderer {
     bubble.anchor.set(0.5, 1);
     bubble.y = -34;
     bubble.visible = false;
-    container.addChild(body, label, bubble);
+    container.addChild(character.container, label, bubble);
     const s = isoToScreen(a.pos.x, a.pos.y);
     container.x = s.x;
     container.y = s.y;
     this.agentLayer.addChild(container);
     const v: AgentView = {
       container,
-      body,
+      character,
       label,
       bubble,
       tilePos: { x: a.pos.x, y: a.pos.y },
@@ -348,6 +356,9 @@ export class Renderer {
     const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
     for (const v of this.views.values()) {
+      // Position : interpolation le long du segment serveur (move.to).
+      const prevX = v.tilePos.x;
+      const prevY = v.tilePos.y;
       if (v.moveTo && v.speedTPS > 0) {
         const dx = v.moveTo.x - v.tilePos.x;
         const dy = v.moveTo.y - v.tilePos.y;
@@ -358,6 +369,14 @@ export class Renderer {
           v.tilePos.y += (dy / d) * step;
         }
       }
+      // Animation : sélectionnée par l'activité courante (idle/walk/busy/sleep).
+      const { name } = animationForActivity(v.state.activity);
+      v.character.setAnimation(name);
+      // Direction : depuis le delta de position lissé entre deux frames.
+      const ddx = v.tilePos.x - prevX;
+      const ddy = v.tilePos.y - prevY;
+      v.character.faceFromMovement(ddx, ddy);
+      v.character.setWorld(v.tilePos.x, v.tilePos.y);
       const s = isoToScreen(v.tilePos.x, v.tilePos.y);
       v.container.x = s.x;
       v.container.y = s.y;
@@ -425,11 +444,6 @@ function drawBuilding(kind: string, fw: number, fh: number): { lower: Container;
   }
   upper.addChild(r);
   return { lower, upper, baseY: hh };
-}
-
-function agentColor(id: number): number {
-  const palette = [0xff6b6b, 0xffd166, 0x06d6a0, 0x4d96ff, 0xc77dff, 0xff9f1c, 0x8ac926, 0xff5d8f];
-  return palette[id % palette.length]!;
 }
 
 const nameStyle = new TextStyle({ fontFamily: 'sans-serif', fontSize: 11, fill: 0xffffff, stroke: { color: 0x000000, width: 3 } });

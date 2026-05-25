@@ -115,9 +115,12 @@ Variables d'env serveur : `PORT`, `TPS`, `AGENTS`, `OLLAMA_URL`, `OLLAMA_MODEL`,
   nuit, uniquement un agent isolé (aucun voisin dans `ISOLATION_RADIUS`) et éveillé.
 - **Sprites** : système 4-directionnel générique dans `packages/web-client/src/sprites/`
   (`character-sprite.ts` + `character-view.ts`). Pixel-art authoré comme palette + grilles
-  de chars hex ; `compile` rend les `Texture` PixiJS au boot via `initAnimalSprites`.
-  L'API (`CharacterView`, `inferDirection`, `mirrorLeftRight`) est conçue pour servir
-  aussi aux agents lors d'une future migration.
+  de chars hex ; `compile` rend les `Texture` PixiJS au boot. Une `CharacterSpriteDef`
+  expose plusieurs **animations nommées** (`idle`/`walk`/`busy`/`sleep`…), `CharacterView`
+  bascule via `setAnimation(name)`. Animaux (`animals.ts`) n'ont que `walk` ;
+  agents (`agents.ts`) en ont 4 — l'animation jouée est mappée depuis l'activité serveur
+  par `animationForActivity`. Tint par agent + scale selon `lifeStage` donnent la
+  variété individuelle sans dupliquer le pixel-art.
 
 ## Pièges connus
 

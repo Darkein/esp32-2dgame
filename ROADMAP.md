@@ -266,9 +266,12 @@ Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dial
   type de bâtiment, fourrage, reproduction — *non couvert ici*
 - [ ] **Cycle proies/prédateurs avancé** : sur-chasse → effondrement → repousse modélisé
   (au-delà du simple respawn ci-dessus) — *non couvert ici*
-- [ ] **Migration des agents** vers `CharacterSprite` (l'API est en place ; les agents
-  restent des disques pour cette itération)
-- Fichiers : `sim-core/src/wildlife.ts`, `web-client/src/sprites/{character-sprite,character-view,animals}.ts`,
+- [x] **Migration des agents vers `CharacterSprite`** : `agents.ts` définit un
+  villageois pixel-art à 4 directions × 4 animations (`idle`, `walk`, `busy`,
+  `sleep`) ; l'animation jouée est mappée depuis `state.activity`
+  (`animationForActivity`), la nuance de tunique est appliquée en `tint` par id
+  d'agent, et la taille varie un peu selon `lifeStage` (enfant/adulte/aîné)
+- Fichiers : `sim-core/src/wildlife.ts`, `web-client/src/sprites/{character-sprite,character-view,animals,agents}.ts`,
   extensions `sim-core/src/{sim,catalog,entities,ai/{utility,tasks,needs}}.ts`,
   `protocol/src/{types,wire}.ts`
 

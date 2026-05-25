@@ -1,7 +1,7 @@
-// Système de sprites pixel-art 4-directionnels, générique (faune Phase 15, agents
-// à terme). Une définition = une palette indexée + des frames sous forme de grilles
-// de caractères ; la compilation produit des `Texture` PixiJS (NEAREST, sans
-// mipmap). Aucun asset externe — tout le pixel-art vit dans le repo.
+// Système de sprites pixel-art 4-directionnels, générique (faune + agents). Une
+// définition = une palette indexée + un ensemble d'animations nommées (idle, walk,
+// busy, sleep…), chaque animation contenant des frames par direction. La compilation
+// produit des `Texture` PixiJS (NEAREST, sans mipmap). Aucun asset externe.
 
 import { Texture } from 'pixi.js';
 
@@ -9,57 +9,80 @@ export type Direction = 'up' | 'down' | 'left' | 'right';
 
 export const DIRECTIONS: Direction[] = ['up', 'down', 'left', 'right'];
 
+export type AnimationFrames = Record<Direction, string[][]>;
+
 export interface CharacterSpriteDef {
   /** Palette indexée. L'index 0 est toujours transparent (`' '` dans les frames). */
   palette: number[];
-  /** Frames par direction. Chaque frame = lignes de caractères, un char = index palette. */
-  frames: Record<Direction, string[][]>;
-  /** Cadence d'animation (frames par seconde). */
-  fps: number;
-  /** Si vrai, les frames `left` sont générées en miroir des frames `right`. Évite
-   *  d'avoir à dessiner deux fois le même pixel-art symétrique. */
+  /** Ensemble d'animations nommées (`walk`, `idle`, `busy`, `sleep`, …).
+   *  Chaque animation a ses frames pour les 4 directions. */
+  animations: Record<string, AnimationFrames>;
+  /** Cadence (fps) par animation. Une animation absente de cette table tournera à 6 fps. */
+  fps?: Partial<Record<string, number>>;
+  /** Si vrai, les frames `left` de chaque animation sont générées en miroir des `right`. */
   mirrorLeftRight?: boolean;
   /** Ancre verticale 0..1 du sprite : 1 = pied posé sur la tuile, 0.5 = centre. */
   anchorY: number;
-  /** Largeur en pixels d'une frame (toutes les directions ont la même taille). */
+  /** Largeur en pixels d'une frame. */
   width: number;
   /** Hauteur en pixels d'une frame. */
   height: number;
+  /** Nom de l'animation par défaut au démarrage. */
+  defaultAnimation: string;
+}
+
+export interface CompiledAnimation {
+  textures: Record<Direction, Texture[]>;
+  fps: number;
 }
 
 export interface CompiledSprite {
-  textures: Record<Direction, Texture[]>;
-  fps: number;
+  animations: Record<string, CompiledAnimation>;
+  defaultAnimation: string;
   anchorY: number;
   width: number;
   height: number;
 }
 
-/** Compile une définition en textures PixiJS prêtes à être passées à `AnimatedSprite`.
- *  Doit être appelé une fois (typiquement dans `Renderer.init`) côté navigateur ; un
- *  `OffscreenCanvas` ou `HTMLCanvasElement` est requis (donc DOM). */
+const DEFAULT_FPS = 6;
+
+/** Compile une définition en textures PixiJS prêtes à être passées à `AnimatedSprite`. */
 export function compile(def: CharacterSpriteDef): CompiledSprite {
+  const out: Record<string, CompiledAnimation> = {};
+  for (const [name, frames] of Object.entries(def.animations)) {
+    out[name] = compileAnimation(def, frames);
+    out[name].fps = def.fps?.[name] ?? DEFAULT_FPS;
+  }
+  return {
+    animations: out,
+    defaultAnimation: def.defaultAnimation,
+    anchorY: def.anchorY,
+    width: def.width,
+    height: def.height,
+  };
+}
+
+function compileAnimation(def: CharacterSpriteDef, frames: AnimationFrames): CompiledAnimation {
   const textures: Record<Direction, Texture[]> = {
     up: [], down: [], left: [], right: [],
   };
   for (const dir of DIRECTIONS) {
-    let frames = def.frames[dir];
-    if (def.mirrorLeftRight && dir === 'left' && def.frames.right) {
-      frames = def.frames.right.map((f) => f.map((row) => row.split('').reverse().join('')));
-    } else if (def.mirrorLeftRight && dir === 'right' && def.frames.left && def.frames.right.length === 0) {
-      frames = def.frames.left.map((f) => f.map((row) => row.split('').reverse().join('')));
+    let src = frames[dir];
+    if (def.mirrorLeftRight && dir === 'left' && (src?.length ?? 0) === 0) {
+      src = (frames.right ?? []).map((f) => f.map((row) => row.split('').reverse().join('')));
+    } else if (def.mirrorLeftRight && dir === 'right' && (src?.length ?? 0) === 0) {
+      src = (frames.left ?? []).map((f) => f.map((row) => row.split('').reverse().join('')));
     }
-    for (const frame of frames) {
+    for (const frame of src ?? []) {
       textures[dir].push(gridToTexture(def.palette, frame, def.width, def.height));
     }
   }
-  return { textures, fps: def.fps, anchorY: def.anchorY, width: def.width, height: def.height };
+  return { textures, fps: DEFAULT_FPS };
 }
 
 /** Convertit une grille (lignes de caractères) en `Texture` NEAREST. Convention :
  *  chaque caractère `0-9a-f` est un index de palette (0..15) ; `' '` et `'.'` sont
- *  transparents. Au-delà de 16 couleurs : utiliser des palettes plus grandes (mais
- *  l'authoring ne tient plus en un seul caractère lisible). */
+ *  transparents. */
 function gridToTexture(palette: number[], grid: string[], w: number, h: number): Texture {
   const canvas = makeCanvas(w, h);
   const ctx = canvas.getContext('2d')! as CanvasRenderingContext2D;
