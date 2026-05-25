@@ -240,14 +240,40 @@ Au-dessus des besoins, un état affectif lu par l'orchestrateur LLM (ton du dial
   `sim-core/src/sim.ts` (`gainSkillXp`, application dans `advanceWork` / `advancePlan`),
   `sim-core/src/entities.ts` (champ `skills`)
 
-## ⬜ Phase 15 — Faune & écosystème *(P2)*
-- [ ] Animaux sauvages : cerfs, lapins, sangliers, loups, poissons (entités légères)
-- [ ] **Chasse** (métier chasseur) → viande, peaux ; risque blessure
-- [ ] **Pêche** au bord de l'eau
-- [ ] **Élevage** : poules (œufs), vaches (lait), porcs (viande) ; enclos, fourrage
-- [ ] **Prédateurs** nocturnes (loups attaquent isolés / élevage non protégé)
-- [ ] Cycle proies/prédateurs (sur-chasse → effondrement → repousse)
-- Fichiers : `sim-core/src/wildlife.ts`, extensions `world.ts` / `catalog.ts`
+## 🟦 Phase 15 — Faune & écosystème *(P2)*
+- [x] **Animaux sauvages** : cerfs, lapins, sangliers, loups, poissons (entités légères
+  dans `sim-core/src/wildlife.ts`) ; densité par biome, cap dur `WILDLIFE_HARD_CAP`,
+  RNG isolé pour ne pas perturber les autres sous-systèmes
+- [x] **Chasse** : métier `chasseur` (déduit de la personnalité — extraversion + faible
+  neuroticism), activité dédiée `hunting`, drop `viande` + `peau`, risque de blessure
+  réelle (`HUNT_INJURY_*`) sur sanglier/loup
+- [x] **Pêche** : métier `pecheur` (ouverture marquée + faible extraversion), activité
+  `fishing`, drop `poisson`, capture mono-coup au bord d'une tuile d'eau
+- [x] **Prédateurs nocturnes** : loup mord par événement discret (`WOLF_BITE_DAMAGE`
+  + cooldown `WOLF_BITE_COOLDOWN_SECONDS`) ; uniquement la nuit, uniquement sur un agent
+  **isolé** (pas d'autre agent dans `ISOLATION_RADIUS`) et hors sommeil (à l'abri chez lui)
+- [x] **Économie** : `viande` / `peau` / `poisson` ajoutés à `BASE_PRICE` (le marché les
+  échange automatiquement) ; `viande`/`poisson` ajoutés à `FOOD_SATIETY` (le pain reste le top)
+- [x] **Respawn** : `maintainWildlife` réajuste la population tous les
+  `WILDLIFE_RESPAWN_INTERVAL_SECONDS` (la sur-chasse provoque un creux puis remonte)
+- [x] **Sprites pixel-art 4-directionnels animés** : système générique
+  (`web-client/src/sprites/character-sprite.ts` + `character-view.ts`) réutilisable pour
+  les agents — chaque kind a son palette + grilles de chars + walk cycle ; `compile`
+  produit les `Texture` PixiJS au boot (`initAnimalSprites`), `inferDirection` déduit la
+  direction du delta de mouvement, `mirrorLeftRight` économise l'auteur sur les
+  silhouettes symétriques
+- [ ] **Élevage** : poules (œufs), vaches (lait), porcs (viande) ; enclos comme nouveau
+  type de bâtiment, fourrage, reproduction — *non couvert ici*
+- [ ] **Cycle proies/prédateurs avancé** : sur-chasse → effondrement → repousse modélisé
+  (au-delà du simple respawn ci-dessus) — *non couvert ici*
+- [x] **Migration des agents vers `CharacterSprite`** : `agents.ts` définit un
+  villageois pixel-art à 4 directions × 4 animations (`idle`, `walk`, `busy`,
+  `sleep`) ; l'animation jouée est mappée depuis `state.activity`
+  (`animationForActivity`), la nuance de tunique est appliquée en `tint` par id
+  d'agent, et la taille varie un peu selon `lifeStage` (enfant/adulte/aîné)
+- Fichiers : `sim-core/src/wildlife.ts`, `web-client/src/sprites/{character-sprite,character-view,animals,agents}.ts`,
+  extensions `sim-core/src/{sim,catalog,entities,ai/{utility,tasks,needs}}.ts`,
+  `protocol/src/{types,wire}.ts`
 
 ## ⬜ Phase 16 — Société, politique & justice *(P3)*
 - [ ] **Leader de village** : élu (vote pondéré par réputation) ou auto-proclamé

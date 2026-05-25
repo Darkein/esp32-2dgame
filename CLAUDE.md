@@ -100,6 +100,28 @@ Variables d'env serveur : `PORT`, `TPS`, `AGENTS`, `OLLAMA_URL`, `OLLAMA_MODEL`,
   **par-dessus**. La collision est régie par le footprint ; le découpage haut/bas est
   purement visuel.
 
+## Faune (phase 15)
+
+- **Animaux** (`packages/sim-core/src/wildlife.ts`) : `Animal` léger (pos, hp, fuite,
+  cooldown morsure). 5 espèces — cerf/lapin/sanglier/loup (forêt + grass) et poisson
+  (eau). Spawnés au boot selon `WILDLIFE_DENSITY`, plafonnés par `WILDLIFE_HARD_CAP`,
+  respawn périodique via `maintainWildlife`. RNG dédié (`wildlifeRng`) pour ne pas
+  perturber les autres sous-systèmes (déterminisme préservé).
+- **Chasse / pêche** : nouveaux métiers `chasseur` / `pecheur` (`assignJob` les attribue
+  selon la personnalité). Activités dédiées `hunting` / `fishing` (cf. `ActivityKind`),
+  drop `viande`/`peau`/`poisson` — déclarés dans `BASE_PRICE` et `FOOD_SATIETY`.
+- **Loup** : modèle d'attaque *discret* (morsure unique `WOLF_BITE_DAMAGE` + cooldown
+  `WOLF_BITE_COOLDOWN_SECONDS`) — robuste à la compression du temps. N'attaque que la
+  nuit, uniquement un agent isolé (aucun voisin dans `ISOLATION_RADIUS`) et éveillé.
+- **Sprites** : système 4-directionnel générique dans `packages/web-client/src/sprites/`
+  (`character-sprite.ts` + `character-view.ts`). Pixel-art authoré comme palette + grilles
+  de chars hex ; `compile` rend les `Texture` PixiJS au boot. Une `CharacterSpriteDef`
+  expose plusieurs **animations nommées** (`idle`/`walk`/`busy`/`sleep`…), `CharacterView`
+  bascule via `setAnimation(name)`. Animaux (`animals.ts`) n'ont que `walk` ;
+  agents (`agents.ts`) en ont 4 — l'animation jouée est mappée depuis l'activité serveur
+  par `animationForActivity`. Tint par agent + scale selon `lifeStage` donnent la
+  variété individuelle sans dupliquer le pixel-art.
+
 ## Pièges connus
 
 - `pnpm codegen` requiert `flatc` (apt : `flatbuffers-compiler`). Le code généré est commité.

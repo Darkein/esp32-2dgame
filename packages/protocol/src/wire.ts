@@ -41,12 +41,13 @@ const TILE_FROM_FB: TileType[] = [
   'grass', 'dirt', 'water', 'stone', 'sand', 'forest', 'farm',
   'champ_seme', 'champ_pousse', 'champ_mur', 'path',
 ];
-// Note : l'enum FlatBuffers `ActivityKind` (`world.fbs`) ne connaît pas encore `washing`.
-// Tant que `pnpm codegen` n'a pas été relancé avec `flatc`, on encode `washing` comme
-// `idle` sur le wire binaire (le worker JSON, lui, transmet la valeur réelle).
+// Note : l'enum FlatBuffers `ActivityKind` (`world.fbs`) ne connaît pas encore
+// `washing`, `hunting` ni `fishing`. Tant que `pnpm codegen` n'a pas été relancé
+// avec `flatc`, on encode `washing` comme `idle` et `hunting`/`fishing` comme
+// `working` sur le wire binaire (le worker JSON, lui, transmet la valeur réelle).
 const ACT_TO_FB: Record<ActivityKind, number> = {
   idle: 0, walking: 1, sleeping: 2, eating: 3, working: 4, crafting: 5, talking: 6, socializing: 7,
-  trading: 8, washing: 0,
+  trading: 8, washing: 0, hunting: 4, fishing: 4,
 };
 const ACT_FROM_FB: ActivityKind[] = [
   'idle', 'walking', 'sleeping', 'eating', 'working', 'crafting', 'talking', 'socializing',

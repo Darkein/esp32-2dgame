@@ -25,7 +25,9 @@ export type ActivityKind =
   | 'talking'
   | 'socializing'
   | 'trading'
-  | 'washing';
+  | 'washing'
+  | 'hunting'
+  | 'fishing';
 
 export interface Vec2 {
   x: number;
@@ -133,6 +135,18 @@ export interface ItemState {
   pos: Vec2;
 }
 
+/** Espèces visibles dans le monde (Phase 15 — faune). */
+export type AnimalKind = 'cerf' | 'lapin' | 'sanglier' | 'loup' | 'poisson';
+
+/** État d'un animal exposé sur le wire. Minimal : position pour le rendu, hp pour
+ *  la barre de vie visible (à venir). */
+export interface AnimalSnapshot {
+  id: number;
+  kind: AnimalKind;
+  pos: Vec2;
+  hp: number;
+}
+
 export interface BuildingState {
   id: number;
   kind: string;
@@ -176,6 +190,10 @@ export interface WorldSnapshot {
   agents: AgentState[];
   items: ItemState[];
   buildings: BuildingState[];
+  /** Faune visible (Phase 15). Non encore présent sur le wire FlatBuffers — le
+   *  worker JSON / WebSocket l'expose tel quel ; un futur `pnpm codegen` couvrira
+   *  l'ESP32. */
+  animals?: AnimalSnapshot[];
   /** Présent uniquement sur le premier snapshot d'une session. */
   chunk?: TileChunk;
 }

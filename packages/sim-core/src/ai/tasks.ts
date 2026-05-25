@@ -109,6 +109,20 @@ export function buildTask(activity: ActivityKind, fallback: Vec2, ctx: TaskConte
       phases.push({ kind: 'execute', activity: 'trading', durationSeconds: range(2 * MIN, 5 * MIN), label: 'commercer' });
       break;
     }
+    case 'hunting': {
+      const t = ctx.resolveTarget(activity, fallback);
+      phases.push({ kind: 'travel', activity: 'walking', target: t, label: 'pister le gibier' });
+      // Sessions de chasse : on reste actif tant qu'il y a une proie à portée ;
+      // la borne haute est large (la phase finit plus tôt si plus de proie / inventaire plein).
+      phases.push({ kind: 'execute', activity: 'hunting', durationSeconds: range(30 * MIN, 2 * HOUR), label: 'chasser' });
+      break;
+    }
+    case 'fishing': {
+      const t = ctx.resolveTarget(activity, fallback);
+      phases.push({ kind: 'travel', activity: 'walking', target: t, label: 'aller à la pêche' });
+      phases.push({ kind: 'execute', activity: 'fishing', durationSeconds: range(30 * MIN, 2 * HOUR), label: 'pêcher' });
+      break;
+    }
     default: {
       // Flânerie : une petite cible aléatoire autour de la maison, suivie d'une pause.
       // Crée le mouvement de fond visible quand aucun besoin n'est urgent.
