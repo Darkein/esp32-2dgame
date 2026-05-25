@@ -1,5 +1,7 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
-import type { TileType, WorldSnapshot, AgentState, BuildingState, Vec2 } from '@game/protocol';
+import type { TileType, WorldSnapshot, AgentState, BuildingState, Vec2, AnimalSnapshot } from '@game/protocol';
+import { animalSprites, initAnimalSprites } from './sprites/animals';
+import { CharacterView } from './sprites/character-view';
 
 const TILE_W = 64;
 const TILE_H = 32;
@@ -79,6 +81,8 @@ export class Renderer {
   private buildingViews = new Map<number, BuildingView>();
   /** Vues d'arbres indexées par index de tuile. */
   private treeViews = new Map<number, TreeView>();
+  /** Vues des animaux (Phase 15), indexées par id d'animal. */
+  private animalViews = new Map<number, CharacterView>();
   private latest: WorldSnapshot | null = null;
   /** Horodatage de la dernière frame pour calculer `dt` réel sur l'interpolation. */
   private lastFrame = performance.now();
@@ -87,6 +91,8 @@ export class Renderer {
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({ background: 0x1a1f2b, resizeTo: window, antialias: true });
     host.appendChild(this.app.canvas);
+    // Compile les textures des sprites animaux (canvas/DOM nécessaire — d'où l'appel après init).
+    initAnimalSprites();
     // Ordre fond → surface : sol, parties basses (Y), agents (Y), parties hautes (par-dessus).
     this.propLayer.sortableChildren = true;
     this.agentLayer.sortableChildren = true;
@@ -116,8 +122,38 @@ export class Renderer {
     this.latest = snapshot;
     if (snapshot.chunk) this.drawTiles(snapshot.chunk.width, snapshot.chunk.height, snapshot.chunk.tiles);
     this.syncBuildings(snapshot.buildings);
+    this.syncAnimals(snapshot.animals ?? []);
     this.syncAgents(snapshot.agents);
     this.updateNight(snapshot.timeOfDay);
+  }
+
+  /** Crée/met à jour/détruit les vues d'animaux selon la liste serveur. La direction
+   *  est ré-évaluée à chaque snapshot à partir du delta de position. */
+  private syncAnimals(animals: AnimalSnapshot[]): void {
+    const sprites = animalSprites();
+    const seen = new Set<number>();
+    for (const a of animals) {
+      seen.add(a.id);
+      let v = this.animalViews.get(a.id);
+      if (!v) {
+        v = new CharacterView(sprites[a.kind]);
+        v.setWorld(a.pos.x, a.pos.y);
+        this.propLayer.addChild(v.container);
+        this.animalViews.set(a.id, v);
+      }
+      const dx = a.pos.x - v.lastWorldPos.x;
+      const dy = a.pos.y - v.lastWorldPos.y;
+      v.faceFromMovement(dx, dy);
+      v.setIdle(Math.abs(dx) + Math.abs(dy) < 0.02);
+      v.setWorld(a.pos.x, a.pos.y);
+      const s = isoToScreen(a.pos.x, a.pos.y);
+      v.setScreen(s.x, s.y);
+    }
+    for (const [id, v] of this.animalViews)
+      if (!seen.has(id)) {
+        v.destroy();
+        this.animalViews.delete(id);
+      }
   }
 
   private syncBuildings(buildings: BuildingState[]): void {

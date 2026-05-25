@@ -29,6 +29,11 @@ const GAIN: Record<ActivityKind, Partial<Needs>> = {
   trading: { social: 100 / (6 * H) },
   // Lavage au puits / bord d'eau : ~10 min de jeu pour repasser de 0 à 100 d'hygiène.
   washing: { hygiene: 100 / (10 * 60) + DECAY.hygiene },
+  // Chasse / pêche (Phase 15) : effort soutenu, légèrement moins éprouvant que le
+  // travail brut. Drain modeste d'énergie ; le bonus social vient seulement de la
+  // pêche (souvent à plusieurs au bord de l'eau).
+  hunting: { fun: DECAY.fun * 0.2, energy: -DECAY.energy * 0.4 },
+  fishing: { fun: DECAY.fun * 0.3, energy: -DECAY.energy * 0.2 },
 };
 
 function clamp(v: number): number {

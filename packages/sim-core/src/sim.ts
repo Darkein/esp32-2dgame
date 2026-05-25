@@ -1,4 +1,4 @@
-import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender, WeatherState } from '@game/protocol';
+import type { DialogueEvent, WorldSnapshot, Vec2, TileType, Gender, WeatherState, AnimalSnapshot } from '@game/protocol';
 import type { LLMProvider } from '@game/llm';
 import { World } from './world';
 import { SimClock, GAME_SECONDS_PER_DAY, BASE_SCALE } from './clock';
@@ -16,6 +16,16 @@ import { bumpEmotion, decayEmotions, makeEmotions } from './ai/emotion';
 import { Market } from './market';
 import { add, count, inventoryToStacks, pay, take } from './crafting';
 import {
+  type Animal,
+  findNearestFish,
+  findNearestPrey,
+  fishingSpot,
+  maintainWildlife,
+  seedWildlife,
+  stepWildlifeAll,
+} from './wildlife';
+import {
+  ANIMAL_PROFILES,
   APPRENTICE_PROXIMITY_TILES,
   APPRENTICE_XP_BONUS,
   BREAKUP_AFFINITY,
@@ -23,6 +33,16 @@ import {
   buildingShape,
   BUILD_BY_KIND,
   CONCEPTION_RATE_PER_YEAR,
+  FISH_RANGE,
+  HUNT_INJURY_CHANCE,
+  HUNT_INJURY_DAMAGE,
+  HUNT_RANGE,
+  ISOLATION_RADIUS,
+  PREY_FLEE_RADIUS,
+  WILDLIFE_RESPAWN_INTERVAL_SECONDS,
+  WOLF_ATTACK_RADIUS,
+  WOLF_BITE_COOLDOWN_SECONDS,
+  WOLF_BITE_DAMAGE,
   CONTAGION_RADIUS,
   CONTAGION_RATE_PER_SEC,
   COUPLE_THRESHOLD,
@@ -105,18 +125,29 @@ export class Simulation {
   readonly market = new Market();
   /** Centres des hameaux pré-amorcés (spawns + ancrage des constructions). */
   readonly villages: Vec2[] = [];
+  /** Faune sauvage (Phase 15). Cerfs/lapins/sangliers/loups/poissons. */
+  readonly wildlife: Animal[] = [];
   /** Météo courante (renouvelée chaque jour selon la saison). */
   weather: WeatherState;
   private readonly rng: Rng;
+  /** RNG dédié à la faune (spawn + errance). Isolé pour ne pas perturber les
+   *  tirages des autres sous-systèmes (couples, maladies, naissances). */
+  private readonly wildlifeRng: Rng;
   private readonly orchestrator: Orchestrator;
   private readonly dialogueQueue: DialogueEvent[] = [];
   private nextId = 1;
+  /** Ids des animaux : disjoint des agents/bâtiments via un préfixe haut. */
+  private nextWildlifeId = 100_000;
+  /** Temps de jeu (s) du prochain réajustement de la population. */
+  private nextWildlifeMaintenanceAt = 0;
   /** Multiplicateur de vitesse du temps (0 = pause, 1 = base, >1 = accéléré). */
   private speed = 1;
 
   constructor(opts: SimOptions = {}) {
     const seed = opts.seed ?? 1234;
     this.rng = new Rng(seed);
+    // RNG faune dérivé du seed mais indépendant : reproductible et isolé.
+    this.wildlifeRng = new Rng(seed ^ 0x9e3779b9);
     this.clock = new SimClock(opts.ticksPerSecond ?? 15);
     this.world = new World(opts.width ?? 48, opts.height ?? 48, this.rng, GAME_SECONDS_PER_DAY);
     this.orchestrator = new Orchestrator(opts.provider ?? null, 600, (e) => this.dialogueQueue.push(e));
@@ -130,6 +161,9 @@ export class Simulation {
       this.clock.gameTime,
       GAME_SECONDS_PER_DAY,
     );
+    // Faune initiale : densité par biome (cf. `WILDLIFE_DENSITY`), cap dur intégré.
+    this.wildlife.push(...seedWildlife(this.world, this.wildlifeRng, () => this.nextWildlifeId++, this.clock.gameTime));
+    this.nextWildlifeMaintenanceAt = this.clock.gameTime + WILDLIFE_RESPAWN_INTERVAL_SECONDS;
   }
 
   /** Pré-amorce 2-3 centres de village dispersés (quadrants opposés).
@@ -328,6 +362,10 @@ export class Simulation {
       this.stepHealthAll(subDt);
       // Émotions : décroissance fine + impulsions liées aux besoins critiques.
       this.stepEmotionsAll(subDt);
+      // Faune : errance, fuite, prédateurs nocturnes. Sous-étape pour éviter qu'une
+      // morsure de loup à fort `dt` ne tue d'un coup (cf. `WOLF_ATTACK_DAMAGE_PER_SEC`).
+      this.stepWildlife(subEnd);
+      this.stepPredators(subDt);
       for (const agent of this.agents) {
         stepNeeds(agent.state.needs, agent.state.activity, subDt);
 
@@ -466,6 +504,8 @@ export class Simulation {
       else if (ph.activity === 'eating') this.tryEat(agent, now);
       else if (ph.activity === 'trading') this.tryTrade(agent, now);
       else if (ph.activity === 'washing') this.tryWash(agent, now);
+      else if (ph.activity === 'hunting') this.advanceHunt(agent, now);
+      else if (ph.activity === 'fishing') this.advanceFish(agent, now);
       const elapsed = now - (ph.startedAt ?? now);
       const duration = ph.durationSeconds ?? 0;
       // Fin anticipée : un craft achevé libère la phase sans attendre le timer.
@@ -571,6 +611,119 @@ export class Simulation {
     agent.nextGatherGameTime = now + GATHER_CADENCE_SECONDS;
   }
 
+  // --- Faune (Phase 15) ---------------------------------------------------
+
+  /** Errance/fuite des animaux + réajustement périodique de la population. */
+  private stepWildlife(now: number): void {
+    stepWildlifeAll(this.world, this.wildlife, this.wildlifeRng, now, (id) => {
+      const a = this.agents.find((x) => x.state.id === id);
+      return a ? a.state.pos : null;
+    });
+    // Reset de la fuite si le chasseur n'est plus à portée d'inquiétude.
+    for (const a of this.wildlife) {
+      if (a.fleeingFrom == null) continue;
+      const h = this.agents.find((x) => x.state.id === a.fleeingFrom);
+      if (!h || distance(h.state.pos, a.pos) > PREY_FLEE_RADIUS) a.fleeingFrom = null;
+    }
+    if (now >= this.nextWildlifeMaintenanceAt) {
+      maintainWildlife(this.world, this.wildlife, this.wildlifeRng, () => this.nextWildlifeId++, now);
+      this.nextWildlifeMaintenanceAt = now + WILDLIFE_RESPAWN_INTERVAL_SECONDS;
+    }
+  }
+
+  /** Prédateurs nocturnes : un loup à portée d'un agent isolé la nuit le mord par
+   *  *événement discret* (dégâts fixes + cooldown sur le loup) — robuste à la
+   *  compression du temps. Les agents endormis (chez eux) sont à l'abri. */
+  private stepPredators(dt: number): void {
+    if (dt <= 0 || !this.clock.isNight) return;
+    const now = this.clock.gameTime;
+    for (const wolf of this.wildlife) {
+      if (wolf.kind !== 'loup' || wolf.hp <= 0) continue;
+      if (now < wolf.nextBiteAt) continue;
+      for (const victim of this.agents) {
+        // Un agent endormi est considéré à l'abri (intérieur de la maison).
+        if (victim.state.activity === 'sleeping') continue;
+        if (distance(victim.state.pos, wolf.pos) > WOLF_ATTACK_RADIUS) continue;
+        // Isolement : aucun autre agent dans le cercle (les loups chassent l'individu).
+        const isolated = !this.agents.some(
+          (o) => o !== victim && distance(o.state.pos, victim.state.pos) <= ISOLATION_RADIUS,
+        );
+        if (!isolated) continue;
+        victim.health = Math.max(0, victim.health - WOLF_BITE_DAMAGE);
+        bumpEmotion(victim.emotions, victim.personality, 'peur', 30);
+        wolf.nextBiteAt = now + WOLF_BITE_COOLDOWN_SECONDS;
+        if (!victim.state.saying) {
+          this.dialogueQueue.push({
+            speakerId: victim.state.id,
+            listenerId: 0,
+            text: 'Un loup ! À l\'aide !',
+            voiceProfile: victim.state.voiceProfile,
+          });
+          victim.state.saying = 'Un loup !';
+          victim.sayingUntilTick = this.clock.tick + 60;
+          victim.memory.add(this.clock.tick, 'J\'ai été attaqué(e) par un loup', 7);
+        }
+        break; // une victime par morsure (cooldown du loup engagé)
+      }
+    }
+  }
+
+  /** Chasse : si une proie est à portée, on la frappe à la cadence. Au kill,
+   *  drop de viande/peau (selon `ANIMAL_PROFILES`). Risque de blessure réelle
+   *  sur les gros gibiers (sanglier, loup) — couvre l'item « risque blessure ». */
+  private advanceHunt(agent: Agent, now: number): void {
+    if (now < agent.nextGatherGameTime) return;
+    const prey = findNearestPrey(this.wildlife, agent.state.pos);
+    if (!prey) return;
+    if (distance(agent.state.pos, prey.pos) > HUNT_RANGE) {
+      // Hors de portée : on marque la fuite pour que la proie s'éloigne effectivement,
+      // et on attend le prochain pas (la phase finira sur timer si vraiment rien à faire).
+      prey.fleeingFrom = agent.state.id;
+      return;
+    }
+    // Tentative : -1 hp à la proie, fuite, risque de blessure sur gros gibier.
+    prey.hp -= 1;
+    prey.fleeingFrom = agent.state.id;
+    const profile = ANIMAL_PROFILES[prey.kind];
+    if ((prey.kind === 'sanglier' || prey.kind === 'loup') && this.rng.chance(HUNT_INJURY_CHANCE)) {
+      agent.health = Math.max(0, agent.health - HUNT_INJURY_DAMAGE);
+      bumpEmotion(agent.emotions, agent.personality, 'peur', 8);
+      agent.memory.add(this.clock.tick, `Blessé(e) par un ${prey.kind} pendant la chasse`, 6);
+    }
+    if (prey.hp <= 0) {
+      if (profile.meat > 0) add(agent.inventory, 'viande', profile.meat);
+      if (profile.hide > 0) add(agent.inventory, 'peau', profile.hide);
+      agent.memory.add(this.clock.tick, `J'ai abattu un ${prey.kind}`, 4);
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION);
+      // Retire le cadavre de la faune (la repousse est gérée par `maintainWildlife`).
+      const idx = this.wildlife.indexOf(prey);
+      if (idx >= 0) this.wildlife.splice(idx, 1);
+    } else {
+      // Tentative non létale : on compte aussi un peu d'XP (effort qui paie).
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION * 0.3);
+    }
+    const speed = skillSpeed(levelFromXp(agent.skills.get(agent.state.job as Job) ?? 0));
+    agent.nextGatherGameTime = now + GATHER_CADENCE_SECONDS / speed;
+  }
+
+  /** Pêche : si un poisson est à portée, on le capture (mono-coup, hp=1). */
+  private advanceFish(agent: Agent, now: number): void {
+    if (now < agent.nextGatherGameTime) return;
+    const fish = findNearestFish(this.wildlife, agent.state.pos);
+    if (!fish) return;
+    if (distance(agent.state.pos, fish.pos) > FISH_RANGE) return;
+    fish.hp -= 1;
+    if (fish.hp <= 0) {
+      add(agent.inventory, 'poisson', 1);
+      agent.memory.add(this.clock.tick, "J'ai pêché un poisson", 2);
+      this.gainSkillXp(agent, agent.state.job as Job, XP_PER_ACTION);
+      const idx = this.wildlife.indexOf(fish);
+      if (idx >= 0) this.wildlife.splice(idx, 1);
+    }
+    const speed = skillSpeed(levelFromXp(agent.skills.get(agent.state.job as Job) ?? 0));
+    agent.nextGatherGameTime = now + GATHER_CADENCE_SECONDS / speed;
+  }
+
   /** Cible de déplacement selon l'activité : poste de craft, chantier, marché ou gisement. */
   private resolveTarget(agent: Agent, activity: string, fallback: Vec2): Vec2 {
     if (activity === 'crafting') return this.planTarget(agent) ?? fallback;
@@ -579,6 +732,20 @@ export class Simulation {
     if (activity === 'washing') {
       const well = this.world.findBuilding('puits', agent.state.pos);
       return well?.door ?? this.world.findWaterEdge(agent.state.pos) ?? fallback;
+    }
+    if (activity === 'hunting') {
+      const prey = findNearestPrey(this.wildlife, agent.state.pos);
+      if (prey) return this.world.nearestWalkable(Math.round(prey.pos.x), Math.round(prey.pos.y));
+      // Pas de proie repérée : on rabat sur la forêt la plus proche (zone de battue).
+      return this.world.findTile(agent.state.pos, 'forest') ?? fallback;
+    }
+    if (activity === 'fishing') {
+      const fish = findNearestFish(this.wildlife, agent.state.pos);
+      if (fish) {
+        const spot = fishingSpot(this.world, fish);
+        if (spot) return spot;
+      }
+      return this.world.findWaterEdge(agent.state.pos) ?? fallback;
     }
     return fallback;
   }
@@ -1322,6 +1489,12 @@ export class Simulation {
       })),
       items: this.world.items.map((i) => ({ ...i })),
       buildings: this.world.buildings.map((b) => ({ ...b })),
+      animals: this.wildlife.map<AnimalSnapshot>((a) => ({
+        id: a.id,
+        kind: a.kind,
+        pos: { x: a.pos.x, y: a.pos.y },
+        hp: a.hp,
+      })),
       chunk: withChunk
         ? { width: this.world.width, height: this.world.height, tiles: [...this.world.tiles] }
         : undefined,

@@ -105,11 +105,18 @@ export interface Agent {
   skills: Map<Job, number>;
 }
 
-/** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité. */
+/** Déduit le métier d'un agent de ses aspirations puis, à défaut, de sa personnalité.
+ *  Les métiers de faune (chasseur/pêcheur) restent minoritaires : ils n'apparaissent
+ *  que pour des profils marqués (téméraire / contemplatif) — typiquement 10-15 % de
+ *  la population, ce qui suffit à alimenter l'économie sans la dominer. */
 export function assignJob(aspirations: string[], p: Personality): Job {
   const a = aspirations.join(' ');
   if (a.includes('fermier')) return 'fermier';
   if (a.includes('crafting') || a.includes('richesse')) return 'artisan';
+  // Chasseur : tempérament téméraire et endurant (extraversion + faible peur du risque).
+  if (p.extraversion > 0.7 && p.neuroticism < 0.35 && p.industriousness > 0.5) return 'chasseur';
+  // Pêcheur : tempérament patient et solitaire (faible extraversion, ouverture marquée).
+  if (p.openness > 0.65 && p.extraversion < 0.35 && p.conscientiousness > 0.4) return 'pecheur';
   if (p.industriousness > 0.6 && p.conscientiousness > 0.5) return 'bucheron';
   if (p.openness > 0.6) return 'boulanger';
   if (p.conscientiousness > 0.55) return 'mineur';

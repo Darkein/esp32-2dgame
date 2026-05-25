@@ -71,14 +71,41 @@ export function decideAction(
 
   // Travailler — récolter/cultiver. La cible précise (gisement, champ) est résolue par
   // la simulation (`sim.workTarget`) ; ici on ne fait que pondérer l'envie de travailler.
+  // Les chasseurs/pêcheurs ont leur propre activité (`hunting`/`fishing`) pour éviter
+  // le doublon : leur boucle ne passe pas par les gisements.
   const workHours = clock.timeOfDay >= 8 && clock.timeOfDay <= 18;
-  if (!isChild) {
+  const job = agent.state.job;
+  const isHunterJob = job === 'chasseur';
+  const isFisherJob = job === 'pecheur';
+  if (!isChild && !isHunterJob && !isFisherJob) {
     candidates.push({
       score:
         (workHours ? 0.9 : 0.05) * (0.5 + p.industriousness) * (0.5 + p.conscientiousness) -
         norm(n.energy) * 0.5 -
         norm(n.hunger) * 0.5,
       decision: { activity: 'working', target: agent.workplace, reason: 'récolter des ressources' },
+    });
+  }
+  // Chasse / pêche (Phase 15) : remplace le candidat « working » pour ces métiers.
+  // Score calqué sur celui du travail, plus une pointe d'extraversion (chasseur)
+  // ou d'ouverture (pêcheur). La nuit pénalise fortement la chasse (les loups
+  // rôdent — implicite via le facteur jour/nuit).
+  if (!isChild && isHunterJob) {
+    candidates.push({
+      score:
+        (workHours ? 0.95 : 0.02) * (0.5 + p.industriousness) * (0.6 + p.extraversion) -
+        norm(n.energy) * 0.5 -
+        norm(n.hunger) * 0.5,
+      decision: { activity: 'hunting', target: agent.workplace, reason: 'chasser du gibier' },
+    });
+  }
+  if (!isChild && isFisherJob) {
+    candidates.push({
+      score:
+        (workHours ? 0.9 : 0.05) * (0.5 + p.industriousness) * (0.6 + p.openness) -
+        norm(n.energy) * 0.4 -
+        norm(n.hunger) * 0.4,
+      decision: { activity: 'fishing', target: agent.workplace, reason: 'aller pêcher' },
     });
   }
 

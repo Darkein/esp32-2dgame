@@ -118,6 +118,8 @@ export function buildingShape(kind: string): BuildingShape {
 /** Rassasiement par aliment (point de faim regagné par unité consommée). */
 export const FOOD_SATIETY: Record<string, number> = {
   pain: 30,
+  viande: 22,
+  poisson: 18,
   ble: 8,
 };
 
@@ -131,7 +133,14 @@ export const STARTING_COINS = 20;
 
 // --- Métiers --------------------------------------------------------------
 
-export type Job = 'fermier' | 'bucheron' | 'mineur' | 'artisan' | 'boulanger';
+export type Job =
+  | 'fermier'
+  | 'bucheron'
+  | 'mineur'
+  | 'artisan'
+  | 'boulanger'
+  | 'chasseur'
+  | 'pecheur';
 
 export interface JobProfile {
   /** Gisements à exploiter en priorité (hors champs, gérés par l'agriculture). */
@@ -152,6 +161,11 @@ export const JOB_PROFILES: Record<Job, JobProfile> = {
   mineur: { gather: ['stone', 'dirt', 'sand'], farms: false, crafts: [], builds: ['puits'], buys: ['pain', 'ble'] },
   artisan: { gather: ['forest', 'stone'], farms: false, crafts: ['outil', 'meuble', 'poterie', 'planche'], builds: ['atelier', 'maison'], buys: ['pain', 'ble'] },
   boulanger: { gather: [], farms: false, crafts: ['farine', 'pain'], builds: ['four'], buys: ['ble'] },
+  // Faune (Phase 15) : chasseur/pêcheur n'exploitent pas les tuiles mais traquent des
+  // animaux. `gather` reste vide — leur boucle de travail passe par `decideAction`
+  // (`hunting`/`fishing`) puis `advanceHunt`/`advanceFish`, pas par les gisements.
+  chasseur: { gather: [], farms: false, crafts: [], builds: [], buys: ['pain', 'ble'] },
+  pecheur: { gather: [], farms: false, crafts: [], builds: [], buys: ['pain', 'ble'] },
 };
 
 /** Nombre maximum de champs qu'un fermier entretient. */
@@ -301,6 +315,9 @@ export const BASE_PRICE: Record<string, number> = {
   argile: 3,
   farine: 3,
   planche: 4,
+  poisson: 4,
+  peau: 5,
+  viande: 6,
   brique: 6,
   verre: 7,
   pain: 8,
@@ -308,3 +325,79 @@ export const BASE_PRICE: Record<string, number> = {
   poterie: 12,
   meuble: 20,
 };
+
+// --- Faune (Phase 15) ------------------------------------------------------
+
+/** Espèces présentes dans le monde. `loup` est l'unique prédateur ; `poisson` ne se
+ *  chasse pas, il se pêche au bord de l'eau. Les autres sont des proies marchables. */
+export type AnimalKind = 'cerf' | 'lapin' | 'sanglier' | 'loup' | 'poisson';
+
+export interface AnimalProfile {
+  /** Points de vie de l'animal (le chasseur en retire 1 par tentative cadencée). */
+  maxHp: number;
+  /** Unités de viande larguées à la mort (0 = prédateur non comestible). */
+  meat: number;
+  /** Unités de peau larguées à la mort. */
+  hide: number;
+  /** Biome de spawn préféré : `forest` pour les ongulés et le loup, `grass` pour le
+   *  lapin, `water` pour le poisson. */
+  biome: TileType;
+  /** Vrai pour les espèces dangereuses (loup) — déclenche `stepPredators`. */
+  isPredator: boolean;
+  /** Vrai pour les espèces chassables (proie terrestre). */
+  isPrey: boolean;
+}
+
+export const ANIMAL_PROFILES: Record<AnimalKind, AnimalProfile> = {
+  cerf:     { maxHp: 3, meat: 3, hide: 1, biome: 'forest', isPredator: false, isPrey: true },
+  sanglier: { maxHp: 4, meat: 3, hide: 1, biome: 'forest', isPredator: false, isPrey: true },
+  lapin:    { maxHp: 1, meat: 1, hide: 0, biome: 'grass',  isPredator: false, isPrey: true },
+  loup:     { maxHp: 5, meat: 0, hide: 1, biome: 'forest', isPredator: true,  isPrey: true },
+  poisson:  { maxHp: 1, meat: 0, hide: 0, biome: 'water',  isPredator: false, isPrey: false },
+};
+
+export const ANIMAL_KINDS: AnimalKind[] = ['cerf', 'sanglier', 'lapin', 'loup', 'poisson'];
+
+/** Densité cible : nombre d'individus visés par tuile éligible du biome. */
+export const WILDLIFE_DENSITY: Record<AnimalKind, number> = {
+  cerf: 1 / 120,
+  sanglier: 1 / 200,
+  lapin: 1 / 90,
+  loup: 1 / 320,
+  poisson: 1 / 60,
+};
+
+/** Plafond dur (sécurité — coût `O(wildlife * agents)` du pas des prédateurs). */
+export const WILDLIFE_HARD_CAP = 80;
+
+/** Intervalle (s de jeu) de réajustement de la population (respawn jusqu'à la densité). */
+export const WILDLIFE_RESPAWN_INTERVAL_SECONDS = 6 * 3600; // ~6 h jeu
+
+/** Cadence d'errance (s de jeu entre deux pas d'un animal terrestre). */
+export const WILDLIFE_STEP_INTERVAL_SECONDS = 8;
+/** Idem, mais pour la fuite (un animal qui fuit bouge plus souvent). */
+export const WILDLIFE_FLEE_STEP_INTERVAL_SECONDS = 2;
+
+/** Distance (tuiles) sous laquelle un chasseur peut frapper son gibier. */
+export const HUNT_RANGE = 1.5;
+/** Distance (tuiles) sous laquelle un pêcheur peut capturer un poisson. */
+export const FISH_RANGE = 1.5;
+/** Distance (tuiles) sous laquelle une proie perçoit la menace et fuit. */
+export const PREY_FLEE_RADIUS = 4;
+
+/** Dégâts infligés par une morsure discrète de loup. Le modèle est événementiel
+ *  (pas un débit) pour rester sain à très haute vitesse de jeu. */
+export const WOLF_BITE_DAMAGE = 8;
+/** Délai (s de jeu) entre deux morsures d'un même loup — fenêtre laissée au village
+ *  pour secourir l'isolé / à l'isolé pour fuir. */
+export const WOLF_BITE_COOLDOWN_SECONDS = 900; // 15 min jeu
+/** Distance (tuiles) sous laquelle un loup peut mordre. */
+export const WOLF_ATTACK_RADIUS = 1.8;
+/** Rayon (tuiles) d'« isolement » : un agent est seul s'il n'a aucun autre agent
+ *  à l'intérieur de ce cercle (les loups n'attaquent que les isolés). */
+export const ISOLATION_RADIUS = 5;
+
+/** Risque (probabilité par tentative) qu'un agent se blesse en chassant un gros gibier. */
+export const HUNT_INJURY_CHANCE = 0.05;
+/** Dégâts infligés à l'agent en cas de blessure de chasse. */
+export const HUNT_INJURY_DAMAGE = 10;
